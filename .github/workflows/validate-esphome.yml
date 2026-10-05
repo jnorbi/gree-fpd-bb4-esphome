@@ -17,7 +17,7 @@ jobs:
       matrix:
         config:
           - esphome/gree-fpd-bb4-cooling-only.yaml
-          - esphome/gree-fpd-bb4-heating-enabled.yaml
+          - esphome/gree-fpd-bb4-heating-enabled.yaml\n          - esphome/modbus-discovery.yaml
 
     steps:
       - name: Check out repository
