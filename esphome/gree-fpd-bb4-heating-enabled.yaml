@@ -1,0 +1,943 @@
+# SHAREABLE CONFIGURATION - HEATING ENABLED
+# This variant exposes HEAT mode in Home Assistant using Holding Register H2=4.
+# Heating support is based on the discovered register map and has not yet been field-tested by the repository author.
+# Hardware: Seeed XIAO ESP32-C3 + Seeed Studio XIAO RS485 breakout board
+# Wi-Fi, API and web credentials are stored in secrets.yaml and are not included here.
+# The Gree Modbus register map and behavior are based on tested FPD-BB4 fan-coil units.
+
+substitutions:
+  device_name: "gree-fpd-bb4"
+  friendly_name: "Gree FPD-BB4 Fan Coil"
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+  min_version: 2026.9.0
+  platformio_options:
+    board_build.flash_mode: dio
+
+esp32:
+  board: seeed_xiao_esp32c3
+  variant: esp32c3
+  framework:
+    type: arduino
+
+logger:
+  level: WARN
+  baud_rate: 0
+
+api:
+  reboot_timeout: 0s
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  # ESPHome OTA inherits api.encryption.key, so this channel is encrypted and authenticated.
+  - platform: esphome
+    encryption:
+
+  # Recovery / manual firmware upload through the web server.
+  # Protected by web_server.auth credentials.
+  - platform: web_server
+
+web_server:
+  port: 80
+  version: 3
+  auth:
+    username: !secret web_username
+    password: !secret web_password
+    type: digest
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "Gree-Fancoil-Fallback"
+    password: !secret fallback_ap_password
+
+captive_portal:
+
+uart:
+  id: rs485_uart
+  tx_pin: GPIO6
+  rx_pin: GPIO7
+  flow_control_pin: GPIO4
+  baud_rate: 9600
+  data_bits: 8
+  parity: NONE
+  stop_bits: 1
+  rx_buffer_size: 512
+
+modbus:
+  id: gree_modbus
+  uart_id: rs485_uart
+  send_wait_time: 250ms
+  turnaround_time: 30ms
+
+modbus_controller:
+  - id: gree_controller
+    modbus_id: gree_modbus
+    address: 1
+    update_interval: 5s
+    max_cmd_retries: 2
+    offline_skip_updates: 1
+
+    on_offline:
+      then:
+        - logger.log:
+            level: WARN
+            format: "Gree Modbus connection lost - writes are blocked."
+
+    on_online:
+      then:
+        - logger.log:
+            level: INFO
+            format: "Gree Modbus connection restored."
+        - script.execute: sync_gree_climate
+
+globals:
+  # Timestamp of the last successfully processed Modbus data point.
+  # Does not generate extra bus traffic; it only tracks successful normal polls.
+  - id: gree_last_good_response_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
+
+  - id: gree_last_good_setpoint
+    type: float
+    restore_value: no
+    initial_value: '24.0'
+
+  # User X-FAN preference.
+  # In FAN mode the unit may physically disable X-FAN,
+  # but the preference is preserved and restored when returning to Cool/Dry.
+  - id: gree_xfan_preferred
+    type: bool
+    restore_value: yes
+    initial_value: 'false'
+
+select:
+  - platform: modbus_controller
+    id: gree_mode_raw
+    internal: true
+    modbus_controller_id: gree_controller
+    address: 2
+    value_type: U_WORD
+    optionsmap:
+      "Cool": 1
+      "Dry": 2
+      "Fan": 3
+      "Heat": 4
+    use_write_multiple: true
+    optimistic: false
+    reuse_previous_range: false
+    on_value:
+      then:
+        - lambda: 'id(gree_last_good_response_ms) = millis();'
+        - script.execute: sync_gree_climate
+
+  - platform: modbus_controller
+    id: gree_fan_raw
+    internal: true
+    modbus_controller_id: gree_controller
+    address: 3
+    value_type: U_WORD
+    optionsmap:
+      "Auto": 0
+      "Low": 1
+      "Medium": 2
+      "High": 3
+      "Turbo": 7
+    use_write_multiple: true
+    optimistic: false
+    reuse_previous_range: false
+    on_value:
+      then:
+        - lambda: 'id(gree_last_good_response_ms) = millis();'
+        - script.execute: sync_gree_climate
+
+  - platform: modbus_controller
+    id: gree_power_raw
+    internal: true
+    modbus_controller_id: gree_controller
+    address: 10
+    value_type: U_WORD
+    optionsmap:
+      "Off": 85
+      "On": 170
+    use_write_multiple: true
+    optimistic: false
+    reuse_previous_range: false
+    on_value:
+      then:
+        - lambda: 'id(gree_last_good_response_ms) = millis();'
+        - script.execute: sync_gree_climate
+
+number:
+  - platform: modbus_controller
+    id: gree_setpoint_raw
+    internal: true
+    modbus_controller_id: gree_controller
+    address: 4
+    register_type: holding
+    value_type: U_WORD
+    min_value: 16
+    max_value: 30
+    step: 1
+    use_write_multiple: true
+    reuse_previous_range: false
+    on_value:
+      then:
+        - lambda: 'id(gree_last_good_response_ms) = millis();'
+        - script.execute: sync_gree_climate
+
+sensor:
+  - platform: modbus_controller
+    id: gree_room_temperature
+    name: "Room Temperature"
+    modbus_controller_id: gree_controller
+    address: 26
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    accuracy_decimals: 0
+    reuse_previous_range: false
+    on_value:
+      then:
+        - lambda: 'id(gree_last_good_response_ms) = millis();'
+
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    update_interval: 30s
+    entity_category: diagnostic
+
+  - platform: uptime
+    name: "ESP Uptime"
+    entity_category: diagnostic
+
+binary_sensor:
+  - platform: modbus_controller
+    id: gree_timer_active
+    name: "Timer Active"
+    modbus_controller_id: gree_controller
+    register_type: coil
+    address: 21
+    reuse_previous_range: false
+    entity_category: diagnostic
+    on_state:
+      then:
+        - lambda: 'id(gree_last_good_response_ms) = millis();'
+
+  - platform: template
+    id: gree_modbus_available
+    name: "Gree Modbus Connection"
+    device_class: connectivity
+    entity_category: diagnostic
+    lambda: |-
+      if (id(gree_last_good_response_ms) == 0)
+        return false;
+      const uint32_t age = millis() - id(gree_last_good_response_ms);
+      return !id(gree_controller)->get_module_offline() && age < 20000;
+
+
+switch:
+  - platform: modbus_controller
+    id: gree_swing_raw
+    internal: true
+    modbus_controller_id: gree_controller
+    register_type: coil
+    address: 30
+    use_write_multiple: true
+    reuse_previous_range: false
+    restore_mode: DISABLED
+    on_state:
+      then:
+        - lambda: 'id(gree_last_good_response_ms) = millis();'
+        - script.execute: sync_gree_climate
+
+  - platform: modbus_controller
+    id: gree_sleep_raw
+    internal: true
+    modbus_controller_id: gree_controller
+    register_type: coil
+    address: 31
+    use_write_multiple: true
+    reuse_previous_range: false
+    restore_mode: DISABLED
+    on_state:
+      then:
+        - lambda: 'id(gree_last_good_response_ms) = millis();'
+        - script.execute: sync_gree_climate
+
+  - platform: modbus_controller
+    id: gree_xfan_raw
+    internal: true
+    modbus_controller_id: gree_controller
+    register_type: coil
+    address: 33
+    use_write_multiple: true
+    reuse_previous_range: false
+    restore_mode: DISABLED
+    on_state:
+      then:
+        - lambda: 'id(gree_last_good_response_ms) = millis();'
+
+  - platform: template
+    id: gree_xfan
+    name: "X-FAN"
+    icon: "mdi:fan-clock"
+    optimistic: false
+    lambda: |-
+      return id(gree_xfan_raw).state;
+
+    turn_on_action:
+      - if:
+          condition:
+            lambda: |-
+              if (!id(gree_modbus_available).state)
+                return false;
+              auto p = id(gree_power_raw).current_option();
+              auto m = id(gree_mode_raw).current_option();
+              return p == "On" && (m == "Cool" || m == "Dry");
+          then:
+            # Preserve the user preference even if
+            # FAN mode later disables X-FAN physically.
+            - lambda: |-
+                id(gree_xfan_preferred) = true;
+
+            # Avoid an unnecessary Modbus write if X-FAN is already physically ON.
+            - if:
+                condition:
+                  lambda: 'return !id(gree_xfan_raw).state;'
+                then:
+                  - switch.turn_on: gree_xfan_raw
+                  - script.execute: refresh_gree
+
+          else:
+            - logger.log:
+                level: WARN
+                format: "X-FAN ON blocked: only available while the unit is online, powered on, and in Cool/Dry mode."
+
+    turn_off_action:
+      - if:
+          condition:
+            lambda: |-
+              return id(gree_modbus_available).state;
+          then:
+            # The user explicitly disabled the X-FAN preference.
+            - lambda: |-
+                id(gree_xfan_preferred) = false;
+
+            # Avoid an unnecessary Modbus write if X-FAN is already physically OFF.
+            - if:
+                condition:
+                  lambda: 'return id(gree_xfan_raw).state;'
+                then:
+                  - switch.turn_off: gree_xfan_raw
+                  - script.execute: refresh_gree
+
+          else:
+            - logger.log:
+                level: WARN
+                format: "X-FAN OFF blocked: Gree Modbus is unavailable."
+
+text_sensor:
+  - platform: template
+    id: gree_physical_mode
+    name: "Physical Mode"
+    entity_category: diagnostic
+    update_interval: 5s
+    lambda: |-
+      auto p = id(gree_power_raw).current_option();
+      if (p.empty()) return {};
+      if (p == "Off") return {"Off"};
+
+      auto m = id(gree_mode_raw).current_option();
+      if (m == "Cool") return {"Cooling"};
+      if (m == "Dry") return {"Dry"};
+      if (m == "Fan") return {"Fan"};
+      if (m == "Heat")
+        return {"Heating"};
+      return {"Unknown"};
+
+climate:
+  - platform: template
+    id: gree_climate
+    name: "${friendly_name}"
+    sensor: gree_room_temperature
+    optimistic: false
+    restore_mode: NO_RESTORE
+
+    initial_state:
+      mode: "OFF"
+      target_temperature: 24
+      fan_mode: AUTO
+      swing_mode: "OFF"
+      preset: NONE
+
+    supported_modes:
+      - "OFF"
+      - COOL
+      - DRY
+      - FAN_ONLY
+      - HEAT
+
+    supported_fan_modes:
+      - AUTO
+      - LOW
+      - MEDIUM
+      - HIGH
+
+    custom_fan_modes:
+      - "Turbo"
+
+    supported_swing_modes:
+      - "OFF"
+      - VERTICAL
+
+    supported_presets:
+      - NONE
+      - SLEEP
+
+    visual:
+      min_temperature: 16
+      max_temperature: 30
+      temperature_step: 1
+
+    set_mode_action:
+      - if:
+          condition:
+            lambda: |-
+              return id(gree_modbus_available).state;
+          then:
+            - lambda: |-
+                int requested_mode = -1;
+
+                if (x == climate::CLIMATE_MODE_OFF)
+                  requested_mode = 0;
+                else if (x == climate::CLIMATE_MODE_COOL)
+                  requested_mode = 1;
+                else if (x == climate::CLIMATE_MODE_DRY)
+                  requested_mode = 2;
+                else if (x == climate::CLIMATE_MODE_FAN_ONLY)
+                  requested_mode = 3;
+                else if (x == climate::CLIMATE_MODE_HEAT)
+                  requested_mode = 4;
+
+                if (requested_mode < 0)
+                  return;
+
+                const bool was_power_on =
+                    id(gree_power_raw).current_option() == "On";
+
+                const bool was_heat =
+                    id(gree_mode_raw).current_option() == "Heat";
+
+                const auto fan = id(gree_fan_raw).current_option();
+
+                // In DRY mode only Auto and Low are valid.
+                // If Medium/High/Turbo is active, switch to Low before entering DRY.
+                const bool dry_needs_low =
+                    requested_mode == 2 &&
+                    fan != "Auto" &&
+                    fan != "Low";
+
+                id(apply_gree_mode)->execute(
+                    requested_mode,
+                    was_heat,
+                    was_power_on,
+                    dry_needs_low
+                );
+
+          else:
+            - logger.log:
+                level: WARN
+                format: "Climate mode command blocked: Gree Modbus is unavailable."
+
+    set_target_temperature_action:
+      - if:
+          condition:
+            lambda: |-
+              if (!id(gree_modbus_available).state)
+                return false;
+              auto p = id(gree_power_raw).current_option();
+              auto m = id(gree_mode_raw).current_option();
+              return p == "On" && (m == "Cool" || m == "Dry" || m == "Heat");
+          then:
+            - number.set:
+                id: gree_setpoint_raw
+                value: !lambda 'return x;'
+            - script.execute: refresh_gree
+          else:
+            - logger.log:
+                level: WARN
+                format: "Setpoint blocked: only available while the unit is online, powered on, and in Cool/Dry/Heat mode."
+
+    set_fan_mode_action:
+      - if:
+          condition:
+            lambda: |-
+              if (!id(gree_modbus_available).state)
+                return false;
+
+              auto p = id(gree_power_raw).current_option();
+              auto m = id(gree_mode_raw).current_option();
+
+              if (p != "On")
+                return false;
+
+              if (!(m == "Cool" || m == "Dry" || m == "Fan" || m == "Heat"))
+                return false;
+
+              if (m == "Dry" &&
+                  x != climate::CLIMATE_FAN_AUTO &&
+                  x != climate::CLIMATE_FAN_LOW)
+                return false;
+
+              return true;
+          then:
+            - if:
+                condition:
+                  lambda: 'return x == climate::CLIMATE_FAN_AUTO;'
+                then:
+                  - select.set:
+                      id: gree_fan_raw
+                      option: "Auto"
+
+            - if:
+                condition:
+                  lambda: 'return x == climate::CLIMATE_FAN_LOW;'
+                then:
+                  - select.set:
+                      id: gree_fan_raw
+                      option: "Low"
+
+            - if:
+                condition:
+                  lambda: 'return x == climate::CLIMATE_FAN_MEDIUM;'
+                then:
+                  - select.set:
+                      id: gree_fan_raw
+                      option: "Medium"
+
+            - if:
+                condition:
+                  lambda: 'return x == climate::CLIMATE_FAN_HIGH;'
+                then:
+                  - select.set:
+                      id: gree_fan_raw
+                      option: "High"
+
+            - script.execute: refresh_gree
+
+          else:
+            - logger.log:
+                level: WARN
+                format: "Fan command blocked: offline, unsupported mode, or invalid fan speed for Dry mode."
+
+    set_custom_fan_mode_action:
+      - if:
+          condition:
+            lambda: |-
+              if (!id(gree_modbus_available).state)
+                return false;
+              auto p = id(gree_power_raw).current_option();
+              auto m = id(gree_mode_raw).current_option();
+              return p == "On" && m == "Cool" && x == "Turbo";
+          then:
+            - select.set:
+                id: gree_fan_raw
+                option: "Turbo"
+            - script.execute: refresh_gree
+          else:
+            - logger.log:
+                level: WARN
+                format: "Turbo blocked: only available while the unit is online, powered on, and in Cool mode."
+
+    set_swing_mode_action:
+      - if:
+          condition:
+            lambda: |-
+              if (!id(gree_modbus_available).state)
+                return false;
+              auto p = id(gree_power_raw).current_option();
+              auto m = id(gree_mode_raw).current_option();
+              return p == "On" && (m == "Cool" || m == "Dry" || m == "Fan");
+          then:
+            - if:
+                condition:
+                  lambda: 'return x == climate::CLIMATE_SWING_OFF;'
+                then:
+                  - switch.turn_off: gree_swing_raw
+                else:
+                  - switch.turn_on: gree_swing_raw
+            - script.execute: refresh_gree
+          else:
+            - logger.log:
+                level: WARN
+                format: "Swing blocked: offline or unsupported physical mode."
+
+    set_preset_action:
+      - if:
+          condition:
+            lambda: |-
+              return id(gree_modbus_available).state;
+          then:
+            - if:
+                condition:
+                  lambda: 'return x == climate::CLIMATE_PRESET_NONE;'
+                then:
+                  - switch.turn_off: gree_sleep_raw
+                  - script.execute: refresh_gree
+                else:
+                  - if:
+                      condition:
+                        lambda: |-
+                          auto p = id(gree_power_raw).current_option();
+                          auto m = id(gree_mode_raw).current_option();
+                          return x == climate::CLIMATE_PRESET_SLEEP &&
+                                 p == "On" && (m == "Cool" || m == "Dry");
+                      then:
+                        - switch.turn_on: gree_sleep_raw
+                        - script.execute: refresh_gree
+                      else:
+                        - logger.log:
+                            level: WARN
+                            format: "Sleep ON blocked: only available while powered on in Cool/Dry mode."
+          else:
+            - logger.log:
+                level: WARN
+                format: "Preset command blocked: Gree Modbus is unavailable."
+
+script:
+  - id: apply_gree_mode
+    mode: restart
+    parameters:
+      requested_mode: int
+      was_heat: bool
+      was_power_on: bool
+      dry_needs_low: bool
+
+    then:
+
+      # ---------------------------------------------------------
+      # OFF
+      # Send an OFF command only if the unit was actually ON.
+      # ---------------------------------------------------------
+      - if:
+          condition:
+            lambda: 'return requested_mode == 0;'
+          then:
+            - if:
+                condition:
+                  lambda: 'return was_power_on;'
+                then:
+                  - select.set:
+                      id: gree_power_raw
+                      option: "Off"
+
+                  - script.execute: refresh_gree
+
+          else:
+
+            # ---------------------------------------------------
+            # ON -> DRY:
+            # If Medium/High/Turbo was active, switch to Low first.
+            # Auto and Low can remain unchanged.
+            # ---------------------------------------------------
+            - if:
+                condition:
+                  lambda: |-
+                    return requested_mode == 2 &&
+                           was_power_on &&
+                           dry_needs_low;
+                then:
+                  - select.set:
+                      id: gree_fan_raw
+                      option: "Low"
+
+                  - delay: 100ms
+
+
+            # ---------------------------------------------------
+            # MODE
+            # Write only if the mode actually changes.
+            # ---------------------------------------------------
+
+            - if:
+                condition:
+                  lambda: |-
+                    return requested_mode == 1 &&
+                           id(gree_mode_raw).current_option() != "Cool";
+                then:
+                  - select.set:
+                      id: gree_mode_raw
+                      option: "Cool"
+
+                  - delay: 100ms
+
+
+            - if:
+                condition:
+                  lambda: |-
+                    return requested_mode == 2 &&
+                           id(gree_mode_raw).current_option() != "Dry";
+                then:
+                  - select.set:
+                      id: gree_mode_raw
+                      option: "Dry"
+
+                  - delay: 100ms
+
+
+            - if:
+                condition:
+                  lambda: |-
+                    return requested_mode == 3 &&
+                           id(gree_mode_raw).current_option() != "Fan";
+                then:
+                  - select.set:
+                      id: gree_mode_raw
+                      option: "Fan"
+
+                  - delay: 100ms
+
+            - if:
+                condition:
+                  lambda: |-
+                    return requested_mode == 4 &&
+                           id(gree_mode_raw).current_option() != "Heat";
+                then:
+                  - select.set:
+                      id: gree_mode_raw
+                      option: "Heat"
+
+                  - delay: 100ms
+
+
+            # ---------------------------------------------------
+            # Heat -> Cool/Dry:
+            # Restore the last known-good cooling setpoint based on
+            # the mode the unit was in before this transition.
+            # ---------------------------------------------------
+            - if:
+                condition:
+                  lambda: |-
+                    return was_heat &&
+                           (requested_mode == 1 ||
+                            requested_mode == 2);
+                then:
+                  - number.set:
+                      id: gree_setpoint_raw
+                      value: !lambda 'return id(gree_last_good_setpoint);'
+
+                  - delay: 100ms
+
+
+            # ---------------------------------------------------
+            # POWER ON
+            # Write Power ON only if the unit was previously OFF.
+            # ---------------------------------------------------
+            - if:
+                condition:
+                  lambda: 'return !was_power_on;'
+                then:
+                  - select.set:
+                      id: gree_power_raw
+                      option: "On"
+
+
+            # ---------------------------------------------------
+            # OFF -> DRY:
+            # While powered off, the fan speed was not changed in advance.
+            # After power-on, switch to Low if required.
+            # ---------------------------------------------------
+            - if:
+                condition:
+                  lambda: |-
+                    return requested_mode == 2 &&
+                           !was_power_on &&
+                           dry_needs_low;
+                then:
+                  - delay: 100ms
+
+                  - select.set:
+                      id: gree_fan_raw
+                      option: "Low"
+
+
+            # ---------------------------------------------------
+            # Restore the sticky X-FAN preference
+            #
+            # In FAN mode the Gree unit may physically disable X-FAN,
+            # but the user preference is preserved. When returning to
+            # Cool/Dry, write ON only if X-FAN is still physically OFF.
+            # ---------------------------------------------------
+            - if:
+                condition:
+                  lambda: |-
+                    return (requested_mode == 1 ||
+                            requested_mode == 2) &&
+                           id(gree_xfan_preferred) &&
+                           !id(gree_xfan_raw).state;
+                then:
+                  # For OFF -> Cool/Dry, allow a short delay after Power ON.
+                  - if:
+                      condition:
+                        lambda: 'return !was_power_on;'
+                      then:
+                        - delay: 100ms
+
+                  - switch.turn_on: gree_xfan_raw
+
+            # Perform a single refresh after the complete operation.
+            - script.execute: refresh_gree
+  - id: sync_gree_climate
+    mode: restart
+    then:
+      - delay: 150ms
+
+      - if:
+          condition:
+            lambda: |-
+              return id(gree_power_raw).current_option() == "Off";
+          then:
+            - climate.template.publish:
+                id: gree_climate
+                mode: "OFF"
+
+      - if:
+          condition:
+            lambda: |-
+              return id(gree_power_raw).current_option() == "On" &&
+                     id(gree_mode_raw).current_option() == "Cool";
+          then:
+            - lambda: |-
+                if (!isnan(id(gree_setpoint_raw).state) &&
+                    id(gree_setpoint_raw).state >= 16.0f &&
+                    id(gree_setpoint_raw).state <= 30.0f) {
+                  id(gree_last_good_setpoint) = id(gree_setpoint_raw).state;
+                }
+            - climate.template.publish:
+                id: gree_climate
+                mode: COOL
+                target_temperature: !lambda 'return id(gree_setpoint_raw).state;'
+                swing_mode: !lambda |-
+                  return id(gree_swing_raw).state
+                           ? climate::CLIMATE_SWING_VERTICAL
+                           : climate::CLIMATE_SWING_OFF;
+                preset: !lambda |-
+                  return id(gree_sleep_raw).state
+                           ? climate::CLIMATE_PRESET_SLEEP
+                           : climate::CLIMATE_PRESET_NONE;
+            - script.execute: publish_gree_fan_state
+
+      - if:
+          condition:
+            lambda: |-
+              return id(gree_power_raw).current_option() == "On" &&
+                     id(gree_mode_raw).current_option() == "Dry";
+          then:
+            - lambda: |-
+                if (!isnan(id(gree_setpoint_raw).state) &&
+                    id(gree_setpoint_raw).state >= 16.0f &&
+                    id(gree_setpoint_raw).state <= 30.0f) {
+                  id(gree_last_good_setpoint) = id(gree_setpoint_raw).state;
+                }
+            - climate.template.publish:
+                id: gree_climate
+                mode: DRY
+                target_temperature: !lambda 'return id(gree_setpoint_raw).state;'
+                swing_mode: !lambda |-
+                  return id(gree_swing_raw).state
+                           ? climate::CLIMATE_SWING_VERTICAL
+                           : climate::CLIMATE_SWING_OFF;
+                preset: !lambda |-
+                  return id(gree_sleep_raw).state
+                           ? climate::CLIMATE_PRESET_SLEEP
+                           : climate::CLIMATE_PRESET_NONE;
+            - script.execute: publish_gree_fan_state
+
+      - if:
+          condition:
+            lambda: |-
+              return id(gree_power_raw).current_option() == "On" &&
+                     id(gree_mode_raw).current_option() == "Fan";
+          then:
+            - climate.template.publish:
+                id: gree_climate
+                mode: FAN_ONLY
+                swing_mode: !lambda |-
+                  return id(gree_swing_raw).state
+                           ? climate::CLIMATE_SWING_VERTICAL
+                           : climate::CLIMATE_SWING_OFF;
+                preset: NONE
+            - script.execute: publish_gree_fan_state
+
+      - if:
+          condition:
+            lambda: |-
+              return id(gree_power_raw).current_option() == "On" &&
+                     id(gree_mode_raw).current_option() == "Heat";
+          then:
+            - climate.template.publish:
+                id: gree_climate
+                mode: HEAT
+                target_temperature: !lambda 'return id(gree_setpoint_raw).state;'
+                swing_mode: !lambda |-
+                  return id(gree_swing_raw).state
+                           ? climate::CLIMATE_SWING_VERTICAL
+                           : climate::CLIMATE_SWING_OFF;
+                preset: NONE
+            - script.execute: publish_gree_fan_state
+
+  - id: publish_gree_fan_state
+    mode: restart
+    then:
+      - if:
+          condition:
+            lambda: 'return id(gree_fan_raw).current_option() == "Auto";'
+          then:
+            - climate.template.publish:
+                id: gree_climate
+                fan_mode: AUTO
+
+      - if:
+          condition:
+            lambda: 'return id(gree_fan_raw).current_option() == "Low";'
+          then:
+            - climate.template.publish:
+                id: gree_climate
+                fan_mode: LOW
+
+      - if:
+          condition:
+            lambda: 'return id(gree_fan_raw).current_option() == "Medium";'
+          then:
+            - climate.template.publish:
+                id: gree_climate
+                fan_mode: MEDIUM
+
+      - if:
+          condition:
+            lambda: 'return id(gree_fan_raw).current_option() == "High";'
+          then:
+            - climate.template.publish:
+                id: gree_climate
+                fan_mode: HIGH
+
+      - if:
+          condition:
+            lambda: 'return id(gree_fan_raw).current_option() == "Turbo";'
+          then:
+            - climate.template.publish:
+                id: gree_climate
+                custom_fan_mode: "Turbo"
+
+  - id: refresh_gree
+    mode: restart
+    then:
+      - delay: 150ms
+      - component.update: gree_controller

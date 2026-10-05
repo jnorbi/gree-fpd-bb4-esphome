@@ -1,0 +1,11 @@
+# ESPHome secrets
+esphome/secrets.yaml
+secrets.yaml
+
+# ESPHome generated/build files
+.esphome/
+esphome/.esphome/
+
+# Common editor/system files
+.DS_Store
+Thumbs.db
