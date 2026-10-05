@@ -76,7 +76,9 @@ The heating-enabled configuration is currently marked experimental because heati
 
 ## Functions not found on Modbus
 
-The indoor-unit display/light control was not identified in the discovered Modbus map. It was observed on the separate Wi-Fi-module UART protocol, which is outside the scope of the main RS485 integration.
+The indoor-unit display/light control was not identified in the discovered Modbus map.
+
+The factory WMBTC02/Gree+ path can control display/light, and the WMBTC02 communicates with the fan coil over the separate 4-wire UART interface. However, a specific UART display/light command has **not** been decoded or confirmed yet.
 
 ## Write behavior
 
