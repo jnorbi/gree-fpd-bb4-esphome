@@ -46,15 +46,15 @@ Both communication directions produced frames starting with:
 
 `7E 7E`
 
-Examples copied from the actual capture included:
+Verbatim examples copied from the actual capture include:
 
 ```text
 7E7E1C01000002020001F00000000000000000061100000000000000000029
-7E7E1C01000002020001FA0000000000061100000000000000000033
-7E7E1C01000101020001F00000000000000000041100000000000000000027
+7E7E1C01000002020001F00000000000000000041100000000000000000027
+7E7E1A030F000000000000000000807EA9191500160000000000013048
 ```
 
-Additional `7E 7E 23 31 ...` status frames were also observed during testing.
+Other `7E 7E 1C 01 ...` and `7E 7E 1A 03 ...` frames were also captured while changing settings.
 
 These examples document observed traffic only. They do not imply that every byte in the protocol has been decoded.
 
@@ -75,7 +75,11 @@ This is different from implementing an active bidirectional controller, where on
 
 The ESP32-C3 GPIOs use 3.3 V logic.
 
-The tested connector also carries a +5 V supply wire, so the supply voltage must not be confused with the data-line logic level. Measure the actual data lines and use appropriate level shifting before driving the interface from an ESP32.
+The tested connector also carries a +5 V supply wire, so the supply voltage must not be confused with the data-line logic level.
+
+With the Wi-Fi module disconnected, Yellow measured about 3.3 V idle and White about 0.14 V idle. During later communication testing, Yellow was also observed near 5 V, so the UART HIGH level should **not** be assumed to be safely 3.3 V from the idle measurement alone.
+
+Measure the actual data lines and use appropriate level shifting before driving the interface from an ESP32.
 
 ## What is confirmed and what is not
 
