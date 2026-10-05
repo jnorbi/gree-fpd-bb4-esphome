@@ -1,0 +1,51 @@
+name: Validate ESPHome
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - esphome/gree-fpd-bb4-cooling-only.yaml
+          - esphome/gree-fpd-bb4-heating-enabled.yaml
+          - esphome/modbus-discovery.yaml
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install ESPHome
+        run: python -m pip install "esphome==2026.9.1"
+
+      - name: Create CI test secrets
+        shell: bash
+        run: |
+          cat > esphome/secrets.yaml <<'EOF'
+          wifi_ssid: "CI_TEST_WIFI"
+          wifi_password: "CI_TEST_PASSWORD"
+          api_encryption_key: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+          web_username: "admin"
+          web_password: "CI_TEST_WEB_PASSWORD"
+          fallback_ap_password: "CI_TEST_FALLBACK_PASSWORD"
+          EOF
+
+      - name: Validate configuration
+        run: esphome config "${{ matrix.config }}"
+
+      - name: Compile configuration
+        run: esphome compile "${{ matrix.config }}"

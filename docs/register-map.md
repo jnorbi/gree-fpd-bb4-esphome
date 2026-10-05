@@ -1,0 +1,90 @@
+# Gree FPD-34/51/68/85BB4/A-K Modbus register map
+
+This project uses the following Modbus map for the Gree FPD-34/51/68/85BB4/A-K family. The mappings below were discovered and physically verified on an FPD-68BB4/A-K.
+
+## Bus settings
+
+- Modbus RTU over RS485
+- 9600 baud
+- 8 data bits
+- No parity
+- 1 stop bit
+- Tested slave address: `1`
+
+## Confirmed holding registers
+
+| Address | Meaning | Observed values / range | Notes |
+|---:|---|---|---|
+| H2 | Operating mode | `1` = Cool, `2` = Dry, `3` = Fan, `4` = Heat | No separate Modbus Auto operating mode was found. |
+| H3 | Fan speed | `0` = Auto, `1` = Low, `2` = Medium, `3` = High, `7` = Turbo | Fan-speed Auto is real and is unrelated to operating-mode Auto. |
+| H4 | Temperature setpoint | `16..30` °C | Used by Cool/Dry and by the experimental Heat configuration. |
+| H10 | Power | `85` / `0x0055` = Off, `170` / `0x00AA` = On | Confirmed by repeated state changes. |
+| H26 | Room / return-air temperature | Temperature in °C | Exposed as a signed word in the current ESPHome configuration. |
+
+### Example observed states
+
+A directly captured Dry / Low / 24 °C state produced:
+
+- H2 = `2`
+- H3 = `1`
+- H4 = `24`
+- H10 = `170`
+- H26 = `24`
+
+A directly captured Heating state produced:
+
+- H2 = `4`
+- H3 = `2`
+- H4 = `28`
+- H10 = `170`
+- H26 = `22`
+
+Selecting Auto on the remote also caused the fan coil itself to enter/report Heat, including H2=`4`. H2=`4` is therefore documented as Heat. No separate Modbus HVAC Auto operating-mode value was observed.
+
+Direct power tests produced:
+
+- H10 = `85` / `0x0055` when Off
+- H10 = `170` / `0x00AA` when On
+
+These state changes were measured on the tested FPD-68BB4/A-K and were used to identify the registers rather than relying only on an external register map.
+
+## Confirmed coils
+
+| Address | Meaning | Notes |
+|---:|---|---|
+| C21 | Timer active | Read-only diagnostic in the main configuration. |
+| C30 | Vertical swing | Boolean coil. |
+| C31 | Sleep | Boolean coil. |
+| C33 | X-FAN | Boolean coil. X-FAN is only enabled by the main configuration in Cool/Dry mode. |
+
+## Address-range observations
+
+The discovery work probed beyond the responding range to locate the apparent boundaries:
+
+- Holding registers H0-H30 responded.
+- H31-H37 timed out / did not respond successfully.
+- Coils C0-C87 responded.
+- C88-C103 timed out / did not respond successfully.
+
+A responding address does **not** mean that every address in the range has a known or useful function. Only the mappings listed above are currently treated as confirmed.
+
+## Heating
+
+Holding register H2 value `4` is treated as **Heat**.
+
+The remote control may present an Auto option, but no separate practical Modbus Auto operating mode was identified on the tested fan-coil setup. For this reason:
+
+- `gree-fpd-bb4-cooling-only.yaml` detects H2=4 but does not expose Heat to Home Assistant.
+- `gree-fpd-bb4-heating-enabled.yaml` exposes H2=4 as Home Assistant Heat mode.
+
+The heating-enabled configuration is marked experimental because heating behavior has not yet been field-validated. It conservatively enables Heat mode, setpoint control and normal fan-speed control. X-FAN, Turbo, Sleep and Heat-mode swing behavior are not assumed.
+
+## Functions not found on Modbus
+
+The indoor-unit display/light control was not identified in the discovered Modbus map.
+
+The factory WMBTC02/Gree+ path can control display/light, and the WMBTC02 communicates with the fan coil over the separate 4-wire UART interface. However, a specific UART display/light command has **not** been decoded or confirmed yet.
+
+## Write behavior
+
+The main ESPHome configuration uses `use_write_multiple: true` for its Modbus-controller entities because this write behavior has been verified to work reliably on the tested setup.
