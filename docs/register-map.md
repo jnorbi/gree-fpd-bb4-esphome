@@ -23,25 +23,30 @@ This document contains only register mappings observed or confirmed during testi
 
 ### Example observed states
 
-During reverse engineering, one observed Cooling / High / 22 °C state produced:
-
-- H2 = `1`
-- H3 = `3`
-- H4 = `22`
-- H10 = `170`
-- H26 = `24`
-
-A Dry / Low / 24 °C state produced:
+A directly captured Dry / Low / 24 °C state produced:
 
 - H2 = `2`
 - H3 = `1`
 - H4 = `24`
+- H10 = `170`
+- H26 = `24`
 
-Power Off produced:
+A directly captured Heating state produced:
 
-- H10 = `85`
+- H2 = `4`
+- H3 = `2`
+- H4 = `28`
+- H10 = `170`
+- H26 = `22`
 
-These state changes were used to identify the registers rather than relying only on an external register map.
+Selecting Auto on the remote produced the same scanned Holding/Coil state as Heating, including H2=`4`. No separate Modbus Auto operating-mode value was observed.
+
+Direct power tests produced:
+
+- H10 = `85` / `0x0055` when Off
+- H10 = `170` / `0x00AA` when On
+
+These state changes were measured on the tested FPD-68BB4/A-K and were used to identify the registers rather than relying only on an external register map.
 
 ## Confirmed coils
 
