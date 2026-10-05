@@ -98,7 +98,7 @@ The heating-enabled configuration therefore does not send swing changes while th
 
 Indoor-unit display/light control was not identified in the discovered RS485 Modbus map.
 
-The function was observed on the separate WMBTC02 UART protocol instead. See [UART reverse engineering](uart-reverse-engineering.md).
+The factory WMBTC02/Gree+ path can control display/light, but a specific UART display/light command has not yet been decoded. See [UART reverse engineering](uart-reverse-engineering.md).
 
 ## External remote-control changes take a moment to appear
 
