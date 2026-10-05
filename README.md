@@ -217,7 +217,7 @@ The published controller includes several pieces of state-management logic beyon
 - avoids unnecessary mode/power writes when the requested state is already active;
 - restores the last known-good cooling setpoint after leaving Heat;
 - forces Low before entering Dry if the current fan speed is not valid for Dry;
-- remembers the X-FAN user preference when Fan mode physically disables X-FAN;
+- preserves the X-FAN user preference across mode changes and restores the coil state when the published control policy allows it;
 - polls the physical state and reflects external changes back into Home Assistant;
 - blocks writes while the Modbus connection is considered unavailable.
 
