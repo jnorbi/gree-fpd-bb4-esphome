@@ -38,7 +38,7 @@ jobs:
           cat > esphome/secrets.yaml <<'EOF'
           wifi_ssid: "CI_TEST_WIFI"
           wifi_password: "CI_TEST_PASSWORD"
-          api_encryption_key: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+          api_encryption_key: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
           web_username: "admin"
           web_password: "CI_TEST_WEB_PASSWORD"
           fallback_ap_password: "CI_TEST_FALLBACK_PASSWORD"
