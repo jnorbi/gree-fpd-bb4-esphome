@@ -300,7 +300,7 @@ switch:
                 return false;
               auto p = id(gree_power_raw).current_option();
               auto m = id(gree_mode_raw).current_option();
-              return p == "On" && (m == "Cool" || m == "Dry" || m == "Heat");
+              return p == "On" && (m == "Cool" || m == "Dry");
           then:
             # Preserve the user preference even if
             # FAN mode later disables X-FAN physically.
@@ -564,7 +564,7 @@ climate:
                 return false;
               auto p = id(gree_power_raw).current_option();
               auto m = id(gree_mode_raw).current_option();
-              return p == "On" && (m == "Cool" || m == "Dry" || m == "Fan" || m == "Heat");
+              return p == "On" && (m == "Cool" || m == "Dry" || m == "Fan");
           then:
             - if:
                 condition:
