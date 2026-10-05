@@ -2,7 +2,7 @@
 
 ESPHome Modbus integration for Gree FPD-BB4 fan coil units, with Home Assistant climate control, register mapping, discovery tools, and reverse-engineering notes.
 
-[![Validate ESPHome](https://github.com/jnorbi/gree-fpd-bb4-esphome/actions/workflows/validate-esphome.yml/badge.svg)](https://github.com/jnorbi/gree-fpd-bb4-esphome/actions/workflows/validate-esphome.yml)
+[![Validate ESPHome](https://github.com/jnorbi/gree-fpd-bb4-esphome/actions/workflows/validate-esphome.yml/badge.svg?branch=main)](https://github.com/jnorbi/gree-fpd-bb4-esphome/actions/workflows/validate-esphome.yml)
 
 ## Overview
 
