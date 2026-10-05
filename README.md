@@ -30,11 +30,11 @@ The project was reverse engineered from actual fan-coil state changes and Modbus
 - Room-temperature feedback
 - External state synchronization through polling
 
-### Same family / not yet fully verified with the final controller
+### Other model in project scope
 
 - Gree FPD-51BB4/A-K
 
-The service documentation groups these units in the same FPD-BB4 wall-mounted family, but the final published controller should not be treated as physically verified on every FPD-BB4 size or hardware revision.
+The FPD-51BB4/A-K was part of the earlier development work, but the final public configuration should not be treated as end-to-end field-validated on every FPD-BB4 size or hardware revision.
 
 ### Heating
 
@@ -185,7 +185,7 @@ See [Register map](docs/register-map.md) for the complete documented result and 
 
 `esphome/modbus-discovery.yaml`
 
-A read-only discovery firmware is included for further reverse engineering.
+The public discovery firmware is an English, credential-safe version of the original `gree_rs485_full_probe_v2.yaml` used during the register scan.
 
 It can issue:
 
@@ -233,7 +233,7 @@ This is different from **fan-speed Auto**, which is supported as H3=0.
 
 Indoor-unit display/light control was not found in the confirmed RS485 register map.
 
-It was observed on the separate WMBTC02 UART protocol.
+The factory WMBTC02/Gree+ path can control display/light, but a specific UART display/light command has not yet been decoded.
 
 ### Heating is experimental
 
