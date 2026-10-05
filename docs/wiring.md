@@ -28,13 +28,7 @@ For the Gree FPD-BB4 family, the BMS/RS485 connection is:
 
 This terminal assignment comes from the FPD-BB4 documentation used during the project.
 
-Gree support also confirmed that the internal terminal-compartment layout shown below is shared across the FPD-BB4 family. The photos are from the tested FPD-68BB4/A-K installation.
-
-![FPD-BB4 RS485 installation overview](images/fpd-bb4-rs485-install-overview.jpg)
-
-![FPD-BB4 terminals 4 and 5 with the RS485 connection](images/fpd-bb4-rs485-terminal-wiring.jpg)
-
-In these photos, the green and yellow wires are **custom installation wires**, not a Gree factory color code. Use any suitable wire colors, but keep the A/B identification consistent.
+Gree support also confirmed that the internal terminal-compartment layout is shared across the FPD-BB4 family.
 
 RS485 A/B naming can differ between third-party interface boards. On the fan-coil side, use the FPD-BB4 terminal assignment above; on the RS485 breakout side, verify the board's own A/B markings.
 
