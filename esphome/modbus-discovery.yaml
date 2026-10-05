@@ -1,25 +1,10 @@
-# READ-ONLY MODBUS DISCOVERY HELPER
-#
-# Reconstructed from the discovery workflow used for the Gree FPD-BB4 project.
-# It is intentionally read-only: no Modbus write actions are defined.
-#
-# Hardware: Seeed XIAO ESP32-C3 + Seeed Studio XIAO RS485 breakout board
-# Bus: 9600 baud, 8 data bits, no parity, 1 stop bit
-# Tested slave address: 1
-#
-# Use the ESPHome web UI to choose a slave address, start address and count,
-# then press one of the four read buttons. Results are written to the ESPHome log.
-
-substitutions:
-  device_name: "gree-fpd-bb4-discovery"
-  friendly_name: "Gree FPD-BB4 Modbus Discovery"
+# PUBLIC-SAFE ENGLISH VERSION OF THE ORIGINAL DISCOVERY PROBE
+# Source: gree_rs485_full_probe_v2.yaml used during the original FPD-BB4 Modbus exploration.
+# The scan logic and scan ranges are preserved. Credentials and user-facing Hungarian text were replaced for public sharing.
 
 esphome:
-  name: ${device_name}
-  friendly_name: ${friendly_name}
-  min_version: 2026.9.0
-  platformio_options:
-    board_build.flash_mode: dio
+  name: gree-rs485-probe
+  friendly_name: Gree RS485 Full Probe
 
 esp32:
   board: seeed_xiao_esp32c3
@@ -28,11 +13,7 @@ esp32:
     type: arduino
 
 logger:
-  level: VERY_VERBOSE
-  baud_rate: 0
-  logs:
-    modbus: VERY_VERBOSE
-    modbus_client: VERY_VERBOSE
+  level: INFO
 
 api:
   reboot_timeout: 0s
@@ -44,6 +25,15 @@ ota:
     encryption:
   - platform: web_server
 
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "Gree-RS485-Fallback"
+    password: !secret fallback_ap_password
+
+captive_portal:
+
 web_server:
   port: 80
   version: 3
@@ -52,20 +42,10 @@ web_server:
     password: !secret web_password
     type: digest
 
-wifi:
-  ssid: !secret wifi_ssid
-  password: !secret wifi_password
-  ap:
-    ssid: "Gree-Modbus-Discovery-Fallback"
-    password: !secret fallback_ap_password
-
-captive_portal:
-
 uart:
   id: rs485_uart
   tx_pin: GPIO6
   rx_pin: GPIO7
-  flow_control_pin: GPIO4
   baud_rate: 9600
   data_bits: 8
   parity: NONE
@@ -75,147 +55,957 @@ uart:
 modbus:
   id: gree_modbus
   uart_id: rs485_uart
+  flow_control_pin: GPIO4
   send_wait_time: 250ms
   turnaround_time: 200ms
 
+globals:
+  - id: scan_active
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  - id: scan_addr
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+  - id: scan_ok
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+  - id: scan_exceptions
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+  - id: scan_timeouts
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+  - id: scan_custom
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+  - id: scan_not_sent
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+  - id: scan_result_1_text
+    type: std::string
+    restore_value: no
+    initial_value: '""'
+
+  - id: scan_result_2_text
+    type: std::string
+    restore_value: no
+    initial_value: '""'
+
+  - id: scan_result_3_text
+    type: std::string
+    restore_value: no
+    initial_value: '""'
+
+  - id: scan_result_4_text
+    type: std::string
+    restore_value: no
+    initial_value: '""'
+
 number:
   - platform: template
-    id: discovery_slave_address
-    name: "Slave Address"
-    min_value: 1
-    max_value: 247
-    step: 1
-    initial_value: 1
-    restore_value: true
-    optimistic: true
-    entity_category: diagnostic
-
-  - platform: template
-    id: discovery_start_address
-    name: "Start Address"
+    name: "Manual Start Address"
+    id: manual_start
     min_value: 0
     max_value: 65535
     step: 1
     initial_value: 0
-    restore_value: true
     optimistic: true
-    entity_category: diagnostic
+    restore_value: true
+    mode: box
 
   - platform: template
-    id: discovery_register_count
-    name: "Register Count"
+    name: "Manual Count"
+    id: manual_count
     min_value: 1
-    max_value: 125
+    max_value: 16
     step: 1
     initial_value: 1
-    restore_value: true
     optimistic: true
-    entity_category: diagnostic
+    restore_value: true
+    mode: box
+
+sensor:
+  - platform: template
+    name: "FCU Mode RAW - W02"
+    id: fcu_mode_raw
+    update_interval: never
+    accuracy_decimals: 0
 
   - platform: template
-    id: discovery_bit_count
-    name: "Bit Count"
-    min_value: 1
-    max_value: 2000
-    step: 1
-    initial_value: 1
-    restore_value: true
-    optimistic: true
+    name: "FCU Fan RAW - W03"
+    id: fcu_fan_raw
+    update_interval: never
+    accuracy_decimals: 0
+
+  - platform: template
+    name: "FCU Setpoint - W04"
+    id: fcu_setpoint
+    update_interval: never
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    accuracy_decimals: 0
+
+  - platform: template
+    name: "FCU Power RAW - W10"
+    id: fcu_power_raw
+    update_interval: never
+    accuracy_decimals: 0
+
+  - platform: template
+    name: "FCU Room Temperature - W26"
+    id: fcu_room_temp
+    update_interval: never
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    accuracy_decimals: 0
+
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    update_interval: 30s
     entity_category: diagnostic
+
+  - platform: uptime
+    name: "ESP Uptime"
+    entity_category: diagnostic
+
+binary_sensor:
+  - platform: template
+    name: "FCU Power"
+    id: fcu_power
+
+text_sensor:
+  - platform: template
+    name: "FCU Mode"
+    id: fcu_mode
+    update_interval: never
+
+  - platform: template
+    name: "FCU Fan Speed"
+    id: fcu_fan
+    update_interval: never
+
+  - platform: template
+    name: "FCU Power State"
+    id: fcu_power_text
+    update_interval: never
+
+  - platform: template
+    name: "FCU Poll Status"
+    id: fcu_poll_status
+    update_interval: never
+
+  - platform: template
+    name: "Manual Probe Result"
+    id: manual_result
+    update_interval: never
+
+  - platform: template
+    name: "Manual Probe Status"
+    id: manual_status
+    update_interval: never
+
+  - platform: template
+    name: "SCAN Status"
+    id: scan_status
+    update_interval: never
+
+  - platform: template
+    name: "SCAN Last Error"
+    id: scan_last_error
+    update_interval: never
+
+  - platform: template
+    name: "SCAN Result 1"
+    id: scan_result_1
+    update_interval: never
+
+  - platform: template
+    name: "SCAN Result 2"
+    id: scan_result_2
+    update_interval: never
+
+  - platform: template
+    name: "SCAN Result 3"
+    id: scan_result_3
+    update_interval: never
+
+  - platform: template
+    name: "SCAN Result 4"
+    id: scan_result_4
+    update_interval: never
+
+  - platform: wifi_info
+    ip_address:
+      name: "ESP IP Address"
+    ssid:
+      name: "WiFi"
+
+script:
+  - id: poll_known
+    mode: single
+    then:
+      - if:
+          condition:
+            lambda: |-
+              return !id(scan_active);
+          then:
+            - modbus_client.read_holding_registers:
+                modbus_id: gree_modbus
+                address: 1
+                start_address: 2
+                count: 3
+                on_response:
+                  then:
+                    - lambda: |-
+                        if (values.size() != 3) return;
+
+                        const uint16_t mode = values[0];
+                        const uint16_t fan = values[1];
+                        const uint16_t temp = values[2];
+
+                        id(fcu_mode_raw).publish_state(mode);
+                        id(fcu_fan_raw).publish_state(fan);
+                        id(fcu_setpoint).publish_state(temp);
+
+                        switch (mode) {
+                          case 1: id(fcu_mode).publish_state("Cooling"); break;
+                          case 2: id(fcu_mode).publish_state("Dry"); break;
+                          case 3: id(fcu_mode).publish_state("Fan"); break;
+                          case 4: id(fcu_mode).publish_state("Heating"); break;
+                          default: {
+                            char buf[32];
+                            snprintf(buf, sizeof(buf), "Unknown (%u)", mode);
+                            id(fcu_mode).publish_state(buf);
+                            break;
+                          }
+                        }
+
+                        switch (fan) {
+                          case 0: id(fcu_fan).publish_state("Auto"); break;
+                          case 1: id(fcu_fan).publish_state("Low"); break;
+                          case 2: id(fcu_fan).publish_state("Medium"); break;
+                          case 3: id(fcu_fan).publish_state("High"); break;
+                          default: {
+                            char buf[32];
+                            snprintf(buf, sizeof(buf), "Unknown (%u)", fan);
+                            id(fcu_fan).publish_state(buf);
+                            break;
+                          }
+                        }
+                on_custom_response:
+                  then:
+                    - lambda: |-
+                        id(fcu_poll_status).publish_state("W2-W4: custom/invalid response");
+                on_error:
+                  then:
+                    - lambda: |-
+                        char buf[64];
+                        snprintf(buf, sizeof(buf), "W2-W4 EX=0x%02X", (uint8_t) exception_code);
+                        id(fcu_poll_status).publish_state(buf);
+                on_no_response:
+                  then:
+                    - lambda: |-
+                        id(fcu_poll_status).publish_state("W2-W4: timeout");
+                on_not_sent:
+                  then:
+                    - lambda: |-
+                        id(fcu_poll_status).publish_state("W2-W4: not sent");
+
+            - delay: 500ms
+
+            - modbus_client.read_holding_registers:
+                modbus_id: gree_modbus
+                address: 1
+                start_address: 10
+                count: 1
+                on_response:
+                  then:
+                    - lambda: |-
+                        if (values.empty()) return;
+                        const uint16_t v = values[0];
+                        id(fcu_power_raw).publish_state(v);
+
+                        if (v == 170) {
+                          id(fcu_power).publish_state(true);
+                          id(fcu_power_text).publish_state("ON (170 / 0xAA)");
+                        } else if (v == 85) {
+                          id(fcu_power).publish_state(false);
+                          id(fcu_power_text).publish_state("OFF (85 / 0x55)");
+                        } else {
+                          char buf[48];
+                          snprintf(buf, sizeof(buf), "Unknown %u / 0x%04X", v, v);
+                          id(fcu_power_text).publish_state(buf);
+                        }
+                on_custom_response:
+                  then:
+                    - lambda: |-
+                        id(fcu_poll_status).publish_state("W10: custom/invalid response");
+                on_error:
+                  then:
+                    - lambda: |-
+                        char buf[64];
+                        snprintf(buf, sizeof(buf), "W10 EX=0x%02X", (uint8_t) exception_code);
+                        id(fcu_poll_status).publish_state(buf);
+                on_no_response:
+                  then:
+                    - lambda: |-
+                        id(fcu_poll_status).publish_state("W10: timeout");
+                on_not_sent:
+                  then:
+                    - lambda: |-
+                        id(fcu_poll_status).publish_state("W10: not sent");
+
+            - delay: 500ms
+
+            - modbus_client.read_holding_registers:
+                modbus_id: gree_modbus
+                address: 1
+                start_address: 26
+                count: 1
+                on_response:
+                  then:
+                    - lambda: |-
+                        if (values.empty()) return;
+                        const int16_t temp = static_cast<int16_t>(values[0]);
+                        id(fcu_room_temp).publish_state(temp);
+                        id(fcu_poll_status).publish_state("OK");
+                on_custom_response:
+                  then:
+                    - lambda: |-
+                        id(fcu_poll_status).publish_state("W26: custom/invalid response");
+                on_error:
+                  then:
+                    - lambda: |-
+                        char buf[64];
+                        snprintf(buf, sizeof(buf), "W26 EX=0x%02X", (uint8_t) exception_code);
+                        id(fcu_poll_status).publish_state(buf);
+                on_no_response:
+                  then:
+                    - lambda: |-
+                        id(fcu_poll_status).publish_state("W26: timeout");
+                on_not_sent:
+                  then:
+                    - lambda: |-
+                        id(fcu_poll_status).publish_state("W26: not sent");
+
+  - id: scan_holding
+    mode: single
+    then:
+      - lambda: |-
+          id(scan_active) = true;
+          id(scan_addr) = 0;
+          id(scan_ok) = 0;
+          id(scan_exceptions) = 0;
+          id(scan_timeouts) = 0;
+          id(scan_custom) = 0;
+          id(scan_not_sent) = 0;
+          id(scan_result_1_text).clear();
+          id(scan_result_2_text).clear();
+          id(scan_result_3_text).clear();
+          id(scan_result_4_text).clear();
+          id(scan_result_1).publish_state("-");
+          id(scan_result_2).publish_state("-");
+          id(scan_result_3).publish_state("-");
+          id(scan_result_4).publish_state("-");
+          id(scan_last_error).publish_state("-");
+          id(scan_status).publish_state("HOLDING scan started: 0-37");
+      - delay: 1500ms
+      - while:
+          condition:
+            lambda: |-
+              return id(scan_active) && id(scan_addr) <= 37;
+          then:
+            - lambda: |-
+                char buf[64];
+                snprintf(buf, sizeof(buf), "HOLDING %d / 37", id(scan_addr));
+                id(scan_status).publish_state(buf);
+            - modbus_client.read_holding_registers:
+                modbus_id: gree_modbus
+                address: 1
+                start_address: !lambda "return (uint16_t) id(scan_addr);"
+                count: 1
+                on_response:
+                  then:
+                    - lambda: |-
+                        if (values.empty()) return;
+                        const int addr = id(scan_addr);
+                        const uint16_t value = values[0];
+                        char token[48];
+                        snprintf(token, sizeof(token), "H%d=%u(0x%04X)", addr, value, value);
+                        id(scan_ok)++;
+
+                        std::string *dst;
+                        if (addr < 10) dst = &id(scan_result_1_text);
+                        else if (addr < 20) dst = &id(scan_result_2_text);
+                        else if (addr < 30) dst = &id(scan_result_3_text);
+                        else dst = &id(scan_result_4_text);
+
+                        if (!dst->empty()) *dst += " | ";
+                        *dst += token;
+
+                        if (addr < 10) id(scan_result_1).publish_state(*dst);
+                        else if (addr < 20) id(scan_result_2).publish_state(*dst);
+                        else if (addr < 30) id(scan_result_3).publish_state(*dst);
+                        else id(scan_result_4).publish_state(*dst);
+                on_custom_response:
+                  then:
+                    - lambda: |-
+                        id(scan_custom)++;
+                        char buf[64];
+                        snprintf(buf, sizeof(buf), "H%d CUSTOM", id(scan_addr));
+                        id(scan_last_error).publish_state(buf);
+                on_error:
+                  then:
+                    - lambda: |-
+                        id(scan_exceptions)++;
+                        char buf[96];
+                        snprintf(buf, sizeof(buf), "H%d EX=0x%02X", id(scan_addr), (uint8_t) exception_code);
+                        id(scan_last_error).publish_state(buf);
+                on_no_response:
+                  then:
+                    - lambda: |-
+                        id(scan_timeouts)++;
+                        char buf[64];
+                        snprintf(buf, sizeof(buf), "H%d TIMEOUT", id(scan_addr));
+                        id(scan_last_error).publish_state(buf);
+                on_not_sent:
+                  then:
+                    - lambda: |-
+                        id(scan_not_sent)++;
+                        char buf[64];
+                        snprintf(buf, sizeof(buf), "H%d NOT SENT", id(scan_addr));
+                        id(scan_last_error).publish_state(buf);
+            - delay: 650ms
+            - lambda: |-
+                id(scan_addr)++;
+      - lambda: |-
+          const bool completed = id(scan_addr) > 37;
+          char buf[160];
+          snprintf(buf, sizeof(buf),
+                   "HOLDING %s | OK=%d EX=%d TIMEOUT=%d CUSTOM=%d NOTSENT=%d",
+                   completed ? "DONE" : "STOPPED",
+                   id(scan_ok), id(scan_exceptions), id(scan_timeouts),
+                   id(scan_custom), id(scan_not_sent));
+          id(scan_status).publish_state(buf);
+          id(scan_active) = false;
+
+  - id: scan_input
+    mode: single
+    then:
+      - lambda: |-
+          id(scan_active) = true;
+          id(scan_addr) = 0;
+          id(scan_ok) = 0;
+          id(scan_exceptions) = 0;
+          id(scan_timeouts) = 0;
+          id(scan_custom) = 0;
+          id(scan_not_sent) = 0;
+          id(scan_result_1_text).clear();
+          id(scan_result_2_text).clear();
+          id(scan_result_3_text).clear();
+          id(scan_result_4_text).clear();
+          id(scan_result_1).publish_state("-");
+          id(scan_result_2).publish_state("-");
+          id(scan_result_3).publish_state("-");
+          id(scan_result_4).publish_state("-");
+          id(scan_last_error).publish_state("-");
+          id(scan_status).publish_state("INPUT scan started: 0-37");
+      - delay: 1500ms
+      - while:
+          condition:
+            lambda: |-
+              return id(scan_active) && id(scan_addr) <= 37;
+          then:
+            - lambda: |-
+                char buf[64];
+                snprintf(buf, sizeof(buf), "INPUT %d / 37", id(scan_addr));
+                id(scan_status).publish_state(buf);
+            - modbus_client.read_input_registers:
+                modbus_id: gree_modbus
+                address: 1
+                start_address: !lambda "return (uint16_t) id(scan_addr);"
+                count: 1
+                on_response:
+                  then:
+                    - lambda: |-
+                        if (values.empty()) return;
+                        const int addr = id(scan_addr);
+                        const uint16_t value = values[0];
+                        char token[48];
+                        snprintf(token, sizeof(token), "I%d=%u(0x%04X)", addr, value, value);
+                        id(scan_ok)++;
+
+                        std::string *dst;
+                        if (addr < 10) dst = &id(scan_result_1_text);
+                        else if (addr < 20) dst = &id(scan_result_2_text);
+                        else if (addr < 30) dst = &id(scan_result_3_text);
+                        else dst = &id(scan_result_4_text);
+
+                        if (!dst->empty()) *dst += " | ";
+                        *dst += token;
+
+                        if (addr < 10) id(scan_result_1).publish_state(*dst);
+                        else if (addr < 20) id(scan_result_2).publish_state(*dst);
+                        else if (addr < 30) id(scan_result_3).publish_state(*dst);
+                        else id(scan_result_4).publish_state(*dst);
+                on_custom_response:
+                  then:
+                    - lambda: |-
+                        id(scan_custom)++;
+                        char buf[64];
+                        snprintf(buf, sizeof(buf), "I%d CUSTOM", id(scan_addr));
+                        id(scan_last_error).publish_state(buf);
+                on_error:
+                  then:
+                    - lambda: |-
+                        id(scan_exceptions)++;
+                        char buf[96];
+                        snprintf(buf, sizeof(buf), "I%d EX=0x%02X", id(scan_addr), (uint8_t) exception_code);
+                        id(scan_last_error).publish_state(buf);
+                on_no_response:
+                  then:
+                    - lambda: |-
+                        id(scan_timeouts)++;
+                        char buf[64];
+                        snprintf(buf, sizeof(buf), "I%d TIMEOUT", id(scan_addr));
+                        id(scan_last_error).publish_state(buf);
+                on_not_sent:
+                  then:
+                    - lambda: |-
+                        id(scan_not_sent)++;
+                        char buf[64];
+                        snprintf(buf, sizeof(buf), "I%d NOT SENT", id(scan_addr));
+                        id(scan_last_error).publish_state(buf);
+            - delay: 650ms
+            - lambda: |-
+                id(scan_addr)++;
+      - lambda: |-
+          const bool completed = id(scan_addr) > 37;
+          char buf[160];
+          snprintf(buf, sizeof(buf),
+                   "INPUT %s | OK=%d EX=%d TIMEOUT=%d CUSTOM=%d NOTSENT=%d",
+                   completed ? "DONE" : "STOPPED",
+                   id(scan_ok), id(scan_exceptions), id(scan_timeouts),
+                   id(scan_custom), id(scan_not_sent));
+          id(scan_status).publish_state(buf);
+          id(scan_active) = false;
+
+  - id: scan_coils
+    mode: single
+    then:
+      - lambda: |-
+          id(scan_active) = true;
+          id(scan_addr) = 0;
+          id(scan_ok) = 0;
+          id(scan_exceptions) = 0;
+          id(scan_timeouts) = 0;
+          id(scan_custom) = 0;
+          id(scan_not_sent) = 0;
+          id(scan_result_1_text).clear();
+          id(scan_result_2_text).clear();
+          id(scan_result_3_text).clear();
+          id(scan_result_4_text).clear();
+          id(scan_result_1).publish_state("-");
+          id(scan_result_2).publish_state("-");
+          id(scan_result_3).publish_state("-");
+          id(scan_result_4).publish_state("-");
+          id(scan_last_error).publish_state("-");
+          id(scan_status).publish_state("COIL scan started: 0-103");
+      - delay: 1500ms
+      - while:
+          condition:
+            lambda: |-
+              return id(scan_active) && id(scan_addr) <= 103;
+          then:
+            - lambda: |-
+                char buf[64];
+                snprintf(buf, sizeof(buf), "COIL %d / 103", id(scan_addr));
+                id(scan_status).publish_state(buf);
+            - modbus_client.read_coils:
+                modbus_id: gree_modbus
+                address: 1
+                start_address: !lambda "return (uint16_t) id(scan_addr);"
+                count: 1
+                on_response:
+                  then:
+                    - lambda: |-
+                        if (bits.size() != 1) return;
+                        const int addr = id(scan_addr);
+                        const bool value = bits[0];
+                        char token[24];
+                        snprintf(token, sizeof(token), "C%d=%u", addr, value ? 1 : 0);
+                        id(scan_ok)++;
+
+                        std::string *dst;
+                        if (addr < 26) dst = &id(scan_result_1_text);
+                        else if (addr < 52) dst = &id(scan_result_2_text);
+                        else if (addr < 78) dst = &id(scan_result_3_text);
+                        else dst = &id(scan_result_4_text);
+
+                        if (!dst->empty()) *dst += " | ";
+                        *dst += token;
+
+                        if (addr < 26) id(scan_result_1).publish_state(*dst);
+                        else if (addr < 52) id(scan_result_2).publish_state(*dst);
+                        else if (addr < 78) id(scan_result_3).publish_state(*dst);
+                        else id(scan_result_4).publish_state(*dst);
+                on_custom_response:
+                  then:
+                    - lambda: |-
+                        id(scan_custom)++;
+                        char buf[64];
+                        snprintf(buf, sizeof(buf), "C%d CUSTOM", id(scan_addr));
+                        id(scan_last_error).publish_state(buf);
+                on_error:
+                  then:
+                    - lambda: |-
+                        id(scan_exceptions)++;
+                        char buf[96];
+                        snprintf(buf, sizeof(buf), "C%d EX=0x%02X", id(scan_addr), (uint8_t) exception_code);
+                        id(scan_last_error).publish_state(buf);
+                on_no_response:
+                  then:
+                    - lambda: |-
+                        id(scan_timeouts)++;
+                        char buf[64];
+                        snprintf(buf, sizeof(buf), "C%d TIMEOUT", id(scan_addr));
+                        id(scan_last_error).publish_state(buf);
+                on_not_sent:
+                  then:
+                    - lambda: |-
+                        id(scan_not_sent)++;
+                        char buf[64];
+                        snprintf(buf, sizeof(buf), "C%d NOT SENT", id(scan_addr));
+                        id(scan_last_error).publish_state(buf);
+            - delay: 650ms
+            - lambda: |-
+                id(scan_addr)++;
+      - lambda: |-
+          const bool completed = id(scan_addr) > 103;
+          char buf[160];
+          snprintf(buf, sizeof(buf),
+                   "COIL %s | OK=%d EX=%d TIMEOUT=%d CUSTOM=%d NOTSENT=%d",
+                   completed ? "DONE" : "STOPPED",
+                   id(scan_ok), id(scan_exceptions), id(scan_timeouts),
+                   id(scan_custom), id(scan_not_sent));
+          id(scan_status).publish_state(buf);
+          id(scan_active) = false;
+
+  - id: scan_discrete
+    mode: single
+    then:
+      - lambda: |-
+          id(scan_active) = true;
+          id(scan_addr) = 0;
+          id(scan_ok) = 0;
+          id(scan_exceptions) = 0;
+          id(scan_timeouts) = 0;
+          id(scan_custom) = 0;
+          id(scan_not_sent) = 0;
+          id(scan_result_1_text).clear();
+          id(scan_result_2_text).clear();
+          id(scan_result_3_text).clear();
+          id(scan_result_4_text).clear();
+          id(scan_result_1).publish_state("-");
+          id(scan_result_2).publish_state("-");
+          id(scan_result_3).publish_state("-");
+          id(scan_result_4).publish_state("-");
+          id(scan_last_error).publish_state("-");
+          id(scan_status).publish_state("DISCRETE scan started: 0-103");
+      - delay: 1500ms
+      - while:
+          condition:
+            lambda: |-
+              return id(scan_active) && id(scan_addr) <= 103;
+          then:
+            - lambda: |-
+                char buf[64];
+                snprintf(buf, sizeof(buf), "DISCRETE %d / 103", id(scan_addr));
+                id(scan_status).publish_state(buf);
+            - modbus_client.read_discrete_inputs:
+                modbus_id: gree_modbus
+                address: 1
+                start_address: !lambda "return (uint16_t) id(scan_addr);"
+                count: 1
+                on_response:
+                  then:
+                    - lambda: |-
+                        if (bits.size() != 1) return;
+                        const int addr = id(scan_addr);
+                        const bool value = bits[0];
+                        char token[24];
+                        snprintf(token, sizeof(token), "D%d=%u", addr, value ? 1 : 0);
+                        id(scan_ok)++;
+
+                        std::string *dst;
+                        if (addr < 26) dst = &id(scan_result_1_text);
+                        else if (addr < 52) dst = &id(scan_result_2_text);
+                        else if (addr < 78) dst = &id(scan_result_3_text);
+                        else dst = &id(scan_result_4_text);
+
+                        if (!dst->empty()) *dst += " | ";
+                        *dst += token;
+
+                        if (addr < 26) id(scan_result_1).publish_state(*dst);
+                        else if (addr < 52) id(scan_result_2).publish_state(*dst);
+                        else if (addr < 78) id(scan_result_3).publish_state(*dst);
+                        else id(scan_result_4).publish_state(*dst);
+                on_custom_response:
+                  then:
+                    - lambda: |-
+                        id(scan_custom)++;
+                        char buf[64];
+                        snprintf(buf, sizeof(buf), "D%d CUSTOM", id(scan_addr));
+                        id(scan_last_error).publish_state(buf);
+                on_error:
+                  then:
+                    - lambda: |-
+                        id(scan_exceptions)++;
+                        char buf[96];
+                        snprintf(buf, sizeof(buf), "D%d EX=0x%02X", id(scan_addr), (uint8_t) exception_code);
+                        id(scan_last_error).publish_state(buf);
+                on_no_response:
+                  then:
+                    - lambda: |-
+                        id(scan_timeouts)++;
+                        char buf[64];
+                        snprintf(buf, sizeof(buf), "D%d TIMEOUT", id(scan_addr));
+                        id(scan_last_error).publish_state(buf);
+                on_not_sent:
+                  then:
+                    - lambda: |-
+                        id(scan_not_sent)++;
+                        char buf[64];
+                        snprintf(buf, sizeof(buf), "D%d NOT SENT", id(scan_addr));
+                        id(scan_last_error).publish_state(buf);
+            - delay: 650ms
+            - lambda: |-
+                id(scan_addr)++;
+      - lambda: |-
+          const bool completed = id(scan_addr) > 103;
+          char buf[160];
+          snprintf(buf, sizeof(buf),
+                   "DISCRETE %s | OK=%d EX=%d TIMEOUT=%d CUSTOM=%d NOTSENT=%d",
+                   completed ? "DONE" : "STOPPED",
+                   id(scan_ok), id(scan_exceptions), id(scan_timeouts),
+                   id(scan_custom), id(scan_not_sent));
+          id(scan_status).publish_state(buf);
+          id(scan_active) = false;
+
+interval:
+  - interval: 10s
+    then:
+      - if:
+          condition:
+            lambda: |-
+              return !id(scan_active);
+          then:
+            - script.execute:
+                id: poll_known
 
 button:
   - platform: template
-    name: "Read Holding Registers (FC03)"
-    icon: "mdi:numeric"
+    name: "POLL KNOWN FCU VALUES NOW"
+    icon: mdi:refresh
     on_press:
-      - modbus_client.read_holding_registers:
-          modbus_id: gree_modbus
-          address: !lambda 'return static_cast<uint8_t>(id(discovery_slave_address).state);'
-          start_address: !lambda 'return static_cast<uint16_t>(id(discovery_start_address).state);'
-          count: !lambda 'return static_cast<uint16_t>(id(discovery_register_count).state);'
-          on_response:
-            then:
-              - lambda: |-
-                  const uint16_t start = static_cast<uint16_t>(id(discovery_start_address).state);
-                  ESP_LOGI("modbus_discovery", "Holding register response: start=%u count=%u", start, values.size());
-                  for (size_t i = 0; i < values.size(); i++) {
-                    ESP_LOGI("modbus_discovery", "H%u = %u (0x%04X)",
-                             start + i, values[i], values[i]);
-                  }
-          on_error:
-            then:
-              - lambda: |-
-                  ESP_LOGW("modbus_discovery", "FC03 exception: 0x%02X",
-                           static_cast<uint8_t>(exception_code));
+      - script.execute:
+          id: poll_known
 
   - platform: template
-    name: "Read Input Registers (FC04)"
-    icon: "mdi:numeric"
+    name: "READ HOLDING - Function 03"
+    icon: mdi:numeric-3-box
     on_press:
-      - modbus_client.read_input_registers:
-          modbus_id: gree_modbus
-          address: !lambda 'return static_cast<uint8_t>(id(discovery_slave_address).state);'
-          start_address: !lambda 'return static_cast<uint16_t>(id(discovery_start_address).state);'
-          count: !lambda 'return static_cast<uint16_t>(id(discovery_register_count).state);'
-          on_response:
-            then:
-              - lambda: |-
-                  const uint16_t start = static_cast<uint16_t>(id(discovery_start_address).state);
-                  ESP_LOGI("modbus_discovery", "Input register response: start=%u count=%u", start, values.size());
-                  for (size_t i = 0; i < values.size(); i++) {
-                    ESP_LOGI("modbus_discovery", "I%u = %u (0x%04X)",
-                             start + i, values[i], values[i]);
-                  }
-          on_error:
-            then:
-              - lambda: |-
-                  ESP_LOGW("modbus_discovery", "FC04 exception: 0x%02X",
-                           static_cast<uint8_t>(exception_code));
+      - if:
+          condition:
+            lambda: |-
+              return !id(scan_active);
+          then:
+            - lambda: |-
+                id(manual_result).publish_state("-");
+                id(manual_status).publish_state("READ HOLDING...");
+            - modbus_client.read_holding_registers:
+                modbus_id: gree_modbus
+                address: 1
+                start_address: !lambda "return (uint16_t) id(manual_start).state;"
+                count: !lambda "return (uint16_t) id(manual_count).state;"
+                on_response:
+                  then:
+                    - lambda: |-
+                        const uint16_t start = (uint16_t) id(manual_start).state;
+                        std::string out;
+                        for (size_t i = 0; i < values.size(); i++) {
+                          char buf[56];
+                          snprintf(buf, sizeof(buf), "H%u=%u(0x%04X)",
+                                   start + (uint16_t) i, values[i], values[i]);
+                          if (!out.empty()) out += " | ";
+                          out += buf;
+                        }
+                        id(manual_result).publish_state(out);
+                        id(manual_status).publish_state("OK");
+                on_custom_response:
+                  then:
+                    - lambda: |-
+                        char buf[64];
+                        snprintf(buf, sizeof(buf), "CUSTOM response (%u bytes)", (unsigned) response.size());
+                        id(manual_status).publish_state(buf);
+                on_error:
+                  then:
+                    - lambda: |-
+                        char buf[96];
+                        snprintf(buf, sizeof(buf), "EXCEPTION 0x%02X", (uint8_t) exception_code);
+                        id(manual_status).publish_state(buf);
+                on_no_response:
+                  then:
+                    - lambda: |-
+                        id(manual_status).publish_state("TIMEOUT / NO RESPONSE");
+                on_not_sent:
+                  then:
+                    - lambda: |-
+                        id(manual_status).publish_state("NOT SENT");
+          else:
+            - lambda: |-
+                id(manual_status).publish_state("A scan is running - stop it first");
 
   - platform: template
-    name: "Read Coils (FC01)"
-    icon: "mdi:toggle-switch"
+    name: "READ INPUT REGISTER - Function 04"
+    icon: mdi:numeric-4-box
     on_press:
-      - modbus_client.read_coils:
-          modbus_id: gree_modbus
-          address: !lambda 'return static_cast<uint8_t>(id(discovery_slave_address).state);'
-          start_address: !lambda 'return static_cast<uint16_t>(id(discovery_start_address).state);'
-          count: !lambda 'return static_cast<uint16_t>(id(discovery_bit_count).state);'
-          on_response:
-            then:
-              - lambda: |-
-                  const uint16_t start = static_cast<uint16_t>(id(discovery_start_address).state);
-                  ESP_LOGI("modbus_discovery", "Coil response: start=%u count=%u", start, bits.size());
-                  for (size_t i = 0; i < bits.size(); i++) {
-                    ESP_LOGI("modbus_discovery", "C%u = %u",
-                             start + i, static_cast<unsigned>(bits[i]));
-                  }
-          on_error:
-            then:
-              - lambda: |-
-                  ESP_LOGW("modbus_discovery", "FC01 exception: 0x%02X",
-                           static_cast<uint8_t>(exception_code));
+      - if:
+          condition:
+            lambda: |-
+              return !id(scan_active);
+          then:
+            - lambda: |-
+                id(manual_result).publish_state("-");
+                id(manual_status).publish_state("READ INPUT...");
+            - modbus_client.read_input_registers:
+                modbus_id: gree_modbus
+                address: 1
+                start_address: !lambda "return (uint16_t) id(manual_start).state;"
+                count: !lambda "return (uint16_t) id(manual_count).state;"
+                on_response:
+                  then:
+                    - lambda: |-
+                        const uint16_t start = (uint16_t) id(manual_start).state;
+                        std::string out;
+                        for (size_t i = 0; i < values.size(); i++) {
+                          char buf[56];
+                          snprintf(buf, sizeof(buf), "I%u=%u(0x%04X)",
+                                   start + (uint16_t) i, values[i], values[i]);
+                          if (!out.empty()) out += " | ";
+                          out += buf;
+                        }
+                        id(manual_result).publish_state(out);
+                        id(manual_status).publish_state("OK");
+                on_custom_response:
+                  then:
+                    - lambda: |-
+                        char buf[64];
+                        snprintf(buf, sizeof(buf), "CUSTOM response (%u bytes)", (unsigned) response.size());
+                        id(manual_status).publish_state(buf);
+                on_error:
+                  then:
+                    - lambda: |-
+                        char buf[96];
+                        snprintf(buf, sizeof(buf), "EXCEPTION 0x%02X", (uint8_t) exception_code);
+                        id(manual_status).publish_state(buf);
+                on_no_response:
+                  then:
+                    - lambda: |-
+                        id(manual_status).publish_state("TIMEOUT / NO RESPONSE");
+                on_not_sent:
+                  then:
+                    - lambda: |-
+                        id(manual_status).publish_state("NOT SENT");
+          else:
+            - lambda: |-
+                id(manual_status).publish_state("A scan is running - stop it first");
 
   - platform: template
-    name: "Read Discrete Inputs (FC02)"
-    icon: "mdi:checkbox-marked-circle-outline"
+    name: "READ COIL - Function 01"
+    icon: mdi:numeric-1-box
     on_press:
-      - modbus_client.read_discrete_inputs:
-          modbus_id: gree_modbus
-          address: !lambda 'return static_cast<uint8_t>(id(discovery_slave_address).state);'
-          start_address: !lambda 'return static_cast<uint16_t>(id(discovery_start_address).state);'
-          count: !lambda 'return static_cast<uint16_t>(id(discovery_bit_count).state);'
-          on_response:
-            then:
-              - lambda: |-
-                  const uint16_t start = static_cast<uint16_t>(id(discovery_start_address).state);
-                  ESP_LOGI("modbus_discovery", "Discrete input response: start=%u count=%u", start, bits.size());
-                  for (size_t i = 0; i < bits.size(); i++) {
-                    ESP_LOGI("modbus_discovery", "D%u = %u",
-                             start + i, static_cast<unsigned>(bits[i]));
-                  }
-          on_error:
-            then:
-              - lambda: |-
-                  ESP_LOGW("modbus_discovery", "FC02 exception: 0x%02X",
-                           static_cast<uint8_t>(exception_code));
+      - if:
+          condition:
+            lambda: |-
+              return !id(scan_active);
+          then:
+            - lambda: |-
+                id(manual_result).publish_state("-");
+                id(manual_status).publish_state("READ COIL...");
+            - modbus_client.read_coils:
+                modbus_id: gree_modbus
+                address: 1
+                start_address: !lambda "return (uint16_t) id(manual_start).state;"
+                count: !lambda "return (uint16_t) id(manual_count).state;"
+                on_response:
+                  then:
+                    - lambda: |-
+                        const uint16_t start = (uint16_t) id(manual_start).state;
+                        std::string out;
+                        for (size_t i = 0; i < bits.size(); i++) {
+                          char buf[32];
+                          snprintf(buf, sizeof(buf), "C%u=%u",
+                                   start + (uint16_t) i, bits[i] ? 1 : 0);
+                          if (!out.empty()) out += " | ";
+                          out += buf;
+                        }
+                        id(manual_result).publish_state(out);
+                        id(manual_status).publish_state("OK");
+                on_custom_response:
+                  then:
+                    - lambda: |-
+                        char buf[64];
+                        snprintf(buf, sizeof(buf), "CUSTOM response (%u bytes)", (unsigned) response.size());
+                        id(manual_status).publish_state(buf);
+                on_error:
+                  then:
+                    - lambda: |-
+                        char buf[96];
+                        snprintf(buf, sizeof(buf), "EXCEPTION 0x%02X", (uint8_t) exception_code);
+                        id(manual_status).publish_state(buf);
+                on_no_response:
+                  then:
+                    - lambda: |-
+                        id(manual_status).publish_state("TIMEOUT / NO RESPONSE");
+                on_not_sent:
+                  then:
+                    - lambda: |-
+                        id(manual_status).publish_state("NOT SENT");
+          else:
+            - lambda: |-
+                id(manual_status).publish_state("A scan is running - stop it first");
+
+  - platform: template
+    name: "READ DISCRETE INPUT - Function 02"
+    icon: mdi:numeric-2-box
+    on_press:
+      - if:
+          condition:
+            lambda: |-
+              return !id(scan_active);
+          then:
+            - lambda: |-
+                id(manual_result).publish_state("-");
+                id(manual_status).publish_state("READ DISCRETE...");
+            - modbus_client.read_discrete_inputs:
+                modbus_id: gree_modbus
+                address: 1
+                start_address: !lambda "return (uint16_t) id(manual_start).state;"
+                count: !lambda "return (uint16_t) id(manual_count).state;"
