@@ -19,14 +19,11 @@ The bus settings are 9600 baud, 8 data bits, no parity, 1 stop bit.
 
 ## Fan-coil connection
 
-Connect the RS485 breakout board's:
+The working controller uses the fan coil's dedicated BMS/RS485 differential pair.
 
-- A -> fan-coil BMS/RS485 A
-- B -> fan-coil BMS/RS485 B
+Use the wiring/service documentation for your exact fan-coil model to identify the unit-side RS485 terminals. This repository intentionally does not publish a universal terminal-block screw number because the exact terminal labeling should be verified on the specific unit.
 
-Use the wiring/service documentation for your exact fan-coil model to identify the unit-side BMS/RS485 terminals.
-
-The FPD-51BB4/A-K and FPD-68BB4/A-K belong to the same wall-mounted FPD-BB4 family, but this repository intentionally does not hard-code a terminal-block screw number as a universal instruction.
+RS485 A/B naming is not perfectly consistent across vendors and interface boards, so follow the markings for your exact hardware rather than assuming that two devices use the same A/B convention.
 
 Power the XIAO/RS485 board from a suitable USB or regulated supply appropriate for the board.
 
@@ -34,9 +31,11 @@ Power the XIAO/RS485 board from a suitable USB or regulated supply appropriate f
 
 The factory WMBTC02 Wi-Fi module uses a separate 4-wire connector.
 
-That connector carries power and a separate UART-style communication interface. It is **not** the two-wire RS485 Modbus connection used by the main configuration in this repository.
+On the tested harness, the measured wires were Red = +5 V, Brown = GND, Yellow = fan coil -> Wi-Fi data and White = Wi-Fi -> fan coil data. Successful serial capture used 4800 baud, 8E1.
 
-Do not connect the RS485 A/B lines to the WMBTC02 UART pins.
+This is **not** the two-wire RS485 Modbus connection used by the main configuration, which runs at 9600 8N1.
+
+Do not connect the RS485 A/B lines to the WMBTC02 UART data wires.
 
 See [UART reverse engineering](uart-reverse-engineering.md) for notes about that separate interface.
 
