@@ -62,31 +62,29 @@ There are two different concepts:
 
 Fan Auto should therefore remain available even though HVAC Auto is absent.
 
-## Dry mode fan-speed limitation
+## Dry mode fan-speed policy
 
-The configuration treats only Auto and Low as valid fan speeds in Dry mode.
+The published controller accepts Auto and Low in Dry mode.
 
-When switching to Dry from Medium, High or Turbo, the controller first changes the fan to Low.
+Low was directly observed to remain stable in Dry mode. Auto was also observed during a Cool-to-Dry transition. The configuration does not claim that other fan speeds are impossible at the hardware/protocol level; it conservatively changes Medium/High/Turbo to Low before entering Dry.
 
-## X-FAN turns off when switching to Fan mode
+## X-FAN mode handling
 
-This behavior was observed on the unit.
+C33 was directly observed to change with the X-FAN control.
 
-The configuration remembers the user's X-FAN preference. If X-FAN was enabled, switching back to Cool or Dry restores it when needed.
+The published configurations preserve the user's X-FAN preference across mode changes and only issue X-FAN ON writes in Cool/Dry. That Cool/Dry restriction is a conservative controller policy; it should not be read as a complete characterization of every mode combination supported by the fan-coil firmware.
 
-X-FAN is not enabled in Heat or Fan mode by the published configurations.
+## Turbo policy
 
-## Turbo is unavailable
+H3=7 was directly observed when Turbo was selected.
 
-Turbo is intentionally exposed only in Cool mode.
+The published controller exposes Turbo only in Cool mode. This is a conservative control policy, not a claim that the underlying firmware has been exhaustively tested for Turbo in every operating mode.
 
-Normal Auto/Low/Medium/High fan speeds remain separate from Turbo.
+## Sleep in Heat
 
-## Sleep does not work in Heat
+C31 was directly observed as the Sleep coil.
 
-The published heating-enabled configuration does not assume unverified Sleep behavior in Heat mode.
-
-Sleep remains limited to Cool/Dry.
+The published heating-enabled configuration only sends Sleep commands in Cool/Dry because Heat-mode Sleep behavior has not been field-tested. This is a controller limitation, not a proven fan-coil hardware limitation.
 
 ## Swing in Heat
 
