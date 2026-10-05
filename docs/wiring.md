@@ -15,29 +15,88 @@ The ESPHome pin mapping used by this repository is:
 | RS485 UART RX | GPIO7 |
 | RS485 DE/RE flow control | GPIO4 |
 
-The bus settings are 9600 baud, 8 data bits, no parity, 1 stop bit.
+The Modbus bus settings are 9600 baud, 8 data bits, no parity, 1 stop bit.
 
-## Fan-coil connection
+## FPD-BB4 RS485 terminals
 
-The working controller uses the fan coil's dedicated BMS/RS485 differential pair.
+For the Gree FPD-BB4 family, the BMS/RS485 connection is:
 
-Use the wiring/service documentation for your exact fan-coil model to identify the unit-side RS485 terminals. This repository intentionally does not publish a universal terminal-block screw number because the exact terminal labeling should be verified on the specific unit.
+| Fan-coil terminal | RS485 |
+|---:|---|
+| 4 | A |
+| 5 | B |
 
-RS485 A/B naming is not perfectly consistent across vendors and interface boards, so follow the markings for your exact hardware rather than assuming that two devices use the same A/B convention.
+This terminal assignment comes from the FPD-BB4 documentation used during the project.
 
-Power the XIAO/RS485 board from a suitable USB or regulated supply appropriate for the board.
+Gree support also confirmed that the internal terminal-compartment layout shown below is shared across the FPD-BB4 family. The photos are from the tested FPD-68BB4/A-K installation.
 
-## Important: the Wi-Fi connector is not the Modbus connector
+![FPD-BB4 RS485 installation overview](images/fpd-bb4-rs485-install-overview.jpg)
 
-The factory WMBTC02 Wi-Fi module uses a separate 4-wire connector.
+![FPD-BB4 terminals 4 and 5 with the RS485 connection](images/fpd-bb4-rs485-terminal-wiring.jpg)
 
-On the tested harness, the measured wires were Red = +5 V, Brown = GND, Yellow = fan coil -> Wi-Fi data and White = Wi-Fi -> fan coil data. Successful serial capture used 4800 baud, 8E1.
+In these photos, the green and yellow wires are **custom installation wires**, not a Gree factory color code. Use any suitable wire colors, but keep the A/B identification consistent.
 
-This is **not** the two-wire RS485 Modbus connection used by the main configuration, which runs at 9600 8N1.
+RS485 A/B naming can differ between third-party interface boards. On the fan-coil side, use the FPD-BB4 terminal assignment above; on the RS485 breakout side, verify the board's own A/B markings.
 
-Do not connect the RS485 A/B lines to the WMBTC02 UART data wires.
+## Powering the ESP32 from the factory Wi-Fi connector
 
-See [UART reverse engineering](uart-reverse-engineering.md) for notes about that separate interface.
+The factory WMBTC02 Wi-Fi module uses a separate **JST XA, 2.5 mm pitch, 4-pin** connector.
+
+On the tested harness, the measured wire functions were:
+
+| Wire | Observed function |
+|---|---|
+| Red | +5 V |
+| Brown | GND |
+| Yellow | Fan coil -> WMBTC02 serial data |
+| White | WMBTC02 -> fan coil serial data |
+
+A clean way to power the ESP32 installation is to use a mating **JST XA 4-pin cable** instead of cutting or soldering onto the fan-coil wiring.
+
+### If the factory WMBTC02 is removed
+
+A mating JST XA cable can be plugged directly into the factory Wi-Fi-module connector.
+
+Use only:
+
+- +5 V
+- GND
+
+for the ESP32/RS485 controller power supply.
+
+The two serial-data wires are not required for the RS485 Modbus controller.
+
+Pre-crimped JST XA 4-pin leads are available from suppliers such as AliExpress; the development installation used this type of cable.
+
+### If the factory WMBTC02 is retained
+
+Use a proper male-to-female JST XA pass-through / Y harness:
+
+- pass all four WMBTC02 wires straight through;
+- branch only +5 V and GND to the ESP32 controller;
+- leave the two WMBTC02 serial-data lines connected only between the fan coil and the factory Wi-Fi module.
+
+This keeps the factory connector system intact and avoids modifying the fan-coil PCB or harness.
+
+## Important: WMBTC02 UART is not Modbus
+
+The 4-wire WMBTC02 connector carries power and a separate serial interface.
+
+Successful captures on the tested unit used:
+
+- 4800 baud
+- 8 data bits
+- even parity
+- 1 stop bit
+- flow control off
+
+In short: **4800 8E1**.
+
+This is **not** the two-wire RS485 Modbus connection used by the main ESPHome controller, which runs at **9600 8N1**.
+
+Do not connect the RS485 A/B lines to the WMBTC02 serial-data wires.
+
+See [UART reverse engineering](uart-reverse-engineering.md) for the measured UART details.
 
 ## Modbus address
 
@@ -62,12 +121,14 @@ The discovery configuration exposes the slave address as a UI control, so it can
 Check all of the following:
 
 1. The XIAO is powered correctly.
-2. RS485 A and B are connected only to the fan-coil's BMS/RS485 interface.
-3. GPIO6 is used as TX.
-4. GPIO7 is used as RX.
-5. GPIO4 is used for RS485 flow control.
-6. The fan-coil is powered.
-7. The configured Modbus address matches the unit.
-8. The bus is configured for 9600 8N1.
+2. Fan-coil terminal 4 is used for RS485 A.
+3. Fan-coil terminal 5 is used for RS485 B.
+4. GPIO6 is used as ESPHome Modbus TX.
+5. GPIO7 is used as ESPHome Modbus RX.
+6. GPIO4 is used for RS485 flow control.
+7. The fan coil is powered.
+8. The configured Modbus address matches the unit.
+9. The Modbus bus is configured for 9600 8N1.
+10. The WMBTC02 4-wire connector is not confused with the RS485 A/B connection.
 
 If there is no communication, power down before changing wiring.
