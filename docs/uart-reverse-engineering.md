@@ -2,74 +2,100 @@
 
 This document describes a **separate interface** from the RS485 Modbus integration used by the main ESPHome configurations.
 
+Everything below is limited to observations made on the tested fan-coil/WMBTC02 setup. It should not be assumed to apply unchanged to every Gree harness or hardware revision.
+
 ## Why this was investigated
 
-The Gree WMBTC02 Wi-Fi module can control functions that were not found in the discovered RS485 Modbus map, including indoor-unit display/light control.
+The factory WMBTC02 Wi-Fi module communicates with the fan coil through a separate 4-wire serial connection.
 
-To investigate those functions, traffic between the fan coil and the factory Wi-Fi module was passively captured.
+The indoor-unit display/light function was not found in the confirmed RS485 Modbus map. The display/light can be controlled through the factory WMBTC02/Gree+ path, but a specific UART command/frame for the display/light function has **not** yet been identified.
 
-## Physical interface
+## Measured 4-wire interface
 
-The tested FPD fan coil uses a 4-wire connector for the factory WMBTC02 Wi-Fi module.
+On the tested harness, the fan-coil-side wire colors and measurements were:
 
-The outer wires were identified as power and ground. The two inner conductors carry bidirectional UART-style communication.
+| Wire | Observed function / level |
+|---|---|
+| Red | +5 V supply |
+| Brown | GND |
+| Yellow | Fan coil -> Wi-Fi module data; about 3.3 V idle with the Wi-Fi module disconnected |
+| White | Wi-Fi module -> fan coil data; about 0.1-0.14 V measured with the Wi-Fi module disconnected |
 
-Wire colors and connector pin order should not be treated as universal across every harness or production revision. Measure and verify your own unit before connecting test equipment.
+With the WMBTC02 connected, communication activity was observed on both data wires.
 
-## UART settings observed
+These colors are observations from the tested harness, not a universal Gree pinout. Verify your own unit before connecting test equipment.
 
-Traffic was successfully captured using:
+## UART settings actually used
 
-- 9600 baud
+Successful captures were made in HTerm using:
+
+- 4800 baud
 - 8 data bits
-- no parity
+- Even parity
 - 1 stop bit
+- Flow control: off
+- Display mode: HEX
 
-Frames repeatedly started with:
+In short: **4800 8E1**.
 
-`7E 7E ...`
+This is **not** the same as the RS485 Modbus interface used by the main controller, which runs at **9600 8N1**.
 
-Examples observed during testing included frames beginning with:
+## Observed traffic
+
+Both communication directions produced frames starting with:
+
+`7E 7E`
+
+Examples copied from the actual capture included:
 
 ```text
-7E 7E 1C 01 ...
-7E 7E 1A 03 ...
-7E 7E 23 31 ...
+7E7E1C01000002020001F00000000000000000061100000000000000000029
+7E7E1C01000002020001FA0000000000061100000000000000000033
+7E7E1C01000101020001F00000000000000000041100000000000000000027
 ```
 
-## Why passive sniffing needed two RX channels
+Additional `7E 7E 23 31 ...` status frames were also observed during testing.
 
-There are two independent transmit directions:
+These examples document observed traffic only. They do not imply that every byte in the protocol has been decoded.
 
-1. fan coil -> Wi-Fi module
-2. Wi-Fi module -> fan coil
+## Capture directions
 
-For passive sniffing, each direction must be observed independently. Two receive channels make it possible to distinguish who transmitted each frame without electrically joining the two TX lines.
+The directions identified during testing were:
 
-This is different from actively controlling the fan coil.
+- Yellow: fan coil -> WMBTC02
+- White: WMBTC02 -> fan coil
 
-A normal active UART controller uses one TX and one RX pair, so a single bidirectional UART peripheral is enough.
+A single USB-UART adapter can capture one direction at a time by connecting only its RX and GND.
+
+To capture both directions simultaneously while keeping the transmitters electrically separate, two receive channels are useful: one RX channel for each data direction.
+
+This is different from implementing an active bidirectional controller, where one TX and one RX signal are used.
 
 ## Logic-level caution
 
-The ESP32-C3 GPIOs are 3.3 V logic.
+The ESP32-C3 GPIOs use 3.3 V logic.
 
-Do not assume the fan-coil-side UART is directly safe for an ESP32 input/output. Measure the line levels and use appropriate level shifting when required.
+The tested connector also carries a +5 V supply wire, so the supply voltage must not be confused with the data-line logic level. Measure the actual data lines and use appropriate level shifting before driving the interface from an ESP32.
 
-The reverse-engineering setup therefore treated voltage-level compatibility separately from protocol decoding.
+## What is confirmed and what is not
 
-## What was learned
+Confirmed from the tests:
 
-The UART work showed that the WMBTC02 interface carries functionality beyond the confirmed RS485 register map.
+- the WMBTC02 uses a separate 4-wire serial interface;
+- successful serial capture settings are 4800 8E1;
+- both directions use `7E 7E`-prefixed frames;
+- Yellow is fan coil -> Wi-Fi module;
+- White is Wi-Fi module -> fan coil;
+- the factory Wi-Fi path can control functions including display/light.
 
-In particular:
+Not yet confirmed:
 
-- display/light control was visible through the UART path;
-- the main RS485 integration did not identify a corresponding confirmed Modbus register/coil;
-- the UART protocol is therefore a possible future extension, not part of the current production Modbus controller.
+- a decoded display/light UART command;
+- a complete byte-level protocol specification;
+- compatibility of the observed wire colors/pin order with every FPD-BB4 revision.
 
 ## Scope of this repository
 
-The supported controller path is RS485 Modbus.
+The supported production controller path in this repository is RS485 Modbus.
 
-The UART notes are included so that other contributors can continue the reverse engineering without repeating the initial electrical/protocol discovery work.
+These UART notes are included only to document the separate WMBTC02 interface and to make continued reverse engineering reproducible without inventing protocol details that have not been verified.
