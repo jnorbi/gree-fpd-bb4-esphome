@@ -1,16 +1,24 @@
 # Modbus discovery
 
-The repository includes a read-only discovery configuration:
+The repository includes the discovery configuration used for the original FPD-BB4 Modbus exploration:
 
 `esphome/modbus-discovery.yaml`
 
-It is a reconstructed and cleaned-up version of the workflow used while reverse engineering the Gree FPD-BB4 Modbus interface. The original historical scanner YAML was not preserved byte-for-byte, so this file should not be described as the original scanner.
+The public file is based directly on the original `gree_rs485_full_probe_v2.yaml`.
+
+For public sharing, only the following were changed:
+
+- Wi-Fi/API/web credentials were replaced with `!secret` references;
+- web/API protection was added;
+- user-facing Hungarian text was translated to English.
+
+The actual scan logic, scan ranges, delays and known-register polling logic were preserved.
 
 ## Safety
 
 The discovery configuration is intentionally **read-only**.
 
-It defines only these Modbus functions:
+It uses only these Modbus functions:
 
 - FC01 - Read Coils
 - FC02 - Read Discrete Inputs
@@ -19,9 +27,7 @@ It defines only these Modbus functions:
 
 No Modbus write action is included.
 
-## Hardware and bus settings
-
-The discovery helper uses the same tested hardware mapping as the main configuration:
+## Hardware and bus settings used by the original probe
 
 - Seeed XIAO ESP32-C3
 - Seeed Studio XIAO RS485 breakout board
@@ -29,76 +35,117 @@ The discovery helper uses the same tested hardware mapping as the main configura
 - RX: GPIO7
 - RS485 flow control / DE-RE: GPIO4
 - 9600 baud
-- 8N1
-- Tested slave address: 1
+- 8 data bits
+- no parity
+- 1 stop bit
+- slave address: 1
 - `send_wait_time: 250ms`
 - `turnaround_time: 200ms`
 
-## How to use it
+These are **Modbus RS485 settings**. They are unrelated to the separate WMBTC02 UART interface, which was captured at 4800 8E1.
 
-1. Copy `esphome/secrets.example.yaml` to `esphome/secrets.yaml` and fill in your own credentials.
-2. Flash `esphome/modbus-discovery.yaml`.
-3. Open the ESPHome device web interface or watch the ESPHome logs.
-4. Set:
-   - **Slave Address**
-   - **Start Address**
-   - **Register Count** for FC03/FC04
-   - **Bit Count** for FC01/FC02
-5. Press the relevant read button.
-6. Inspect the `modbus_discovery` log entries.
+## Automatic scans in the original probe
 
-The helper prints both decimal and hexadecimal values for register reads.
-
-## Reproducing the FPD-BB4 exploration
-
-The historical exploration attempted these ranges:
+The probe scans one address at a time.
 
 ### Holding registers
 
-Start with the known responding block:
+`SCAN HOLDING 0-37`
 
-- Start Address: `0`
-- Register Count: `31`
-- Read Holding Registers (FC03)
+- FC03
+- addresses H0-H37
+- count 1 per request
+- 650 ms delay between addresses
 
-This covers H0-H30.
+### Input registers
 
-The next tested addresses H31-H37 did not respond successfully. When exploring unknown boundaries, probe one address or a small block at a time because a single unsupported address can cause a block request to fail.
+`SCAN INPUT REGISTERS 0-37`
+
+- FC04
+- addresses I0-I37
+- count 1 per request
+- 650 ms delay between addresses
 
 ### Coils
 
-The known responding coil block was:
+`SCAN COILS 0-103`
 
-- Start Address: `0`
-- Bit Count: `88`
-- Read Coils (FC01)
+- FC01
+- addresses C0-C103
+- count 1 per request
+- 650 ms delay between addresses
 
-This covers C0-C87.
+### Discrete inputs
 
-C88-C103 did not respond successfully during the original exploration.
+`SCAN DISCRETE INPUTS 0-103`
 
-## Identifying a register
+- FC02
+- addresses D0-D103
+- count 1 per request
+- 650 ms delay between addresses
 
-Do not assign meaning based only on a value that looks plausible.
+The probe records successful responses, Modbus exceptions, timeouts, custom responses and requests that were not sent.
 
-Change exactly one physical setting at a time, read the same range again, and compare the result. This is how the known mappings were confirmed, for example:
+## Manual reads
 
-- changing operating mode identified H2;
-- changing fan speed identified H3;
-- changing target temperature identified H4;
-- toggling power identified H10;
-- comparing room temperature identified H26.
+The original probe also provides manual read controls:
 
-The same change-one-variable-at-a-time method was used for the confirmed coils.
+- start address: 0-65535
+- count: 1-16
+- Read Holding - FC03
+- Read Input Register - FC04
+- Read Coil - FC01
+- Read Discrete Input - FC02
+
+This was used to re-check interesting addresses after the broad scans.
+
+## Known-value polling included in the probe
+
+When no scan is active, the probe periodically reads the already identified values:
+
+- H2-H4: mode, fan and setpoint
+- H10: power
+- H26: room temperature
+
+This polling is also read-only.
+
+## Results observed during the original exploration
+
+From the actual scan:
+
+- H0-H30 responded.
+- H31-H37 timed out.
+- C0-C87 responded.
+- C88-C103 timed out.
+
+A successful response does **not** mean every address in the responding range has a known function.
+
+Only addresses confirmed by state changes are documented as known mappings in [Register map](register-map.md).
+
+## How mappings were identified
+
+The useful mappings were identified by changing one physical setting at a time and comparing the register/coil values.
+
+Examples:
+
+- operating mode -> H2;
+- fan speed -> H3;
+- target temperature -> H4;
+- power -> H10;
+- room temperature -> H26;
+- timer -> C21;
+- vertical swing -> C30;
+- sleep -> C31;
+- X-FAN -> C33.
 
 ## FC02 and FC04
 
-The public helper also exposes Discrete Input (FC02) and Input Register (FC04) reads so other users can continue investigating their own units.
+The original probe scanned both Discrete Inputs and Input Registers as well.
 
-The current repository does not claim a confirmed FPD-BB4 map for those two address spaces.
+The current repository does not claim a confirmed functional map for those two address spaces.
 
-## Logging
+## Logging and normal use
 
-The discovery YAML uses very verbose Modbus logging. It is intended for temporary reverse-engineering work, not as the normal day-to-day controller firmware.
+The discovery firmware is intended for reverse engineering and diagnostics.
 
-For normal operation use one of the main configurations instead.
+For normal day-to-day fan-coil control, use one of the main climate configurations instead.
