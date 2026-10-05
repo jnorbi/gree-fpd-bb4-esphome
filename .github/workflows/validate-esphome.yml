@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - public-yaml-v1
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
@@ -18,7 +17,8 @@ jobs:
       matrix:
         config:
           - esphome/gree-fpd-bb4-cooling-only.yaml
-          - esphome/gree-fpd-bb4-heating-enabled.yaml\n          - esphome/modbus-discovery.yaml
+          - esphome/gree-fpd-bb4-heating-enabled.yaml
+          - esphome/modbus-discovery.yaml
 
     steps:
       - name: Check out repository
